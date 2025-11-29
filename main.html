@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIPS Simulator (v6 - Your SVG + Vue Logic)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <style>
+        /* 基礎樣式：方塊 (元件) */
+        .box {
+            fill: #D9D9D9;
+            fill-opacity: 0.5;
+            stroke: black;
+            stroke-width: 1;
+            transition: all 0.2s ease-in-out;
+        }
+        /* 高亮樣式：方塊 */
+        .box-active {
+            stroke: #06b6d4; /* 亮青色 */
+            stroke-width: 4;
+            filter: drop-shadow(0 0 10px #06b6d4);
+        }
+        
+        /* 基礎樣式：資料線 (Wires) */
+        .wire {
+            stroke: white;
+            stroke-width: 2;
+            transition: all 0.2s ease-in-out;
+        }
+        /* 高亮樣式：資料線 */
+        .wire-active {
+            stroke: #34d399; /* 亮綠色 */
+            stroke-width: 4;
+            filter: drop-shadow(0 0 5px #34d399);
+        }
+        
+        /* 基礎樣式：控制線 (Control Lines) */
+        .control-line {
+            stroke: #6b7280; /* 灰色 */
+            stroke-width: 2;
+            stroke-dasharray: 4 2; /* 虛線 */
+            transition: all 0.2s ease-in-out;
+        }
+        /* 高亮樣式：控制線 */
+        .control-line-active {
+            stroke: #f87171; /* 紅色 */
+            stroke-width: 3;
+            stroke-dasharray: 0; /* 實線 */
+            filter: drop-shadow(0 0 5px #f87171);
+        }
+
+        /* 文字樣式 */
+        .label {
+            font-family: monospace;
+            fill: #E5E7EB; /* 淺灰色 */
+            font-size: 24px;
+            text-anchor: middle; /* 文字置中 */
+            user-select: none;
+        }
+        .data-label {
+            font-family: monospace;
+            fill: #fcd34d; /* 黃色 */
+            font-size: 22px;
+            text-anchor: middle;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-white flex flex-col items-center justify-center min-h-screen p-8">
+
+    <h1 class="text-4xl font-bold text-center mb-6">MIPS 視覺化 (v6: 你的Figma + Vue)</h1>
+    <p class="text-lg text-gray-400 mb-4">FSM State: <span class="text-2xl font-bold text-cyan-300">{{ cpuDisplay.currentState }}</span></p>
+
+    <div id="app" class="w-full max-w-7xl bg-gray-900 p-6 rounded-lg shadow-xl mb-6">
+        
+        <svg width="100%" viewBox="0 0 1994 1144" fill="none" xmlns="http://www.w3.org/2000/svg">
+            
+            <rect id="ControlROM" x="847" y="876" width="899" height="143" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlROMActive}" />
+            <text x="1300" y="955" class="label">Control ROM</text> <rect id="PC" x="327" y="495" width="168" height="119" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlSignals.PCRead || cpuDisplay.controlSignals.PCWrite}" />
+            <text x="411" y="545" class="label">PC</text> <text x="411" y="580" class="data-label">0x{{ cpuDisplay.pc.toString(16) }}</text> <rect id="InstMemory" x="570" y="246" width="233" height="439" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlSignals.MemRead && cpuDisplay.controlSignals.IorD === 0}" />
+            <text x="686" y="445" class="label">Inst Memory</text>
+            <text x="686" y="480" class="data-label">0x{{ cpuDisplay.mem0.toString(16) }}</text> <rect id="Register" x="957" y="246" width="234" height="439" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlSignals.RegRead || cpuDisplay.controlSignals.RegWrite}" />
+            <text x="1074" y="440" class="label">Reg File</text>
+            <text x="1074" y="475" class="data-label">$t0: {{ cpuDisplay.reg8 }}</text> <text x="1074" y="505" class="data-label">$t1: {{ cpuDisplay.reg9 }}</text> <g id="ALU">
+                <path d="M1310.5 361.5V279.5L1435 361.5V548.5L1310.5 627V548.5L1368.5 504.5V401L1310.5 361.5Z" 
+                      class="box" 
+                      :class="{'box-active': cpuDisplay.controlSignals.ALUOp !== 'IDLE'}" 
+                      fill-opacity="0.46" shape-rendering="crispEdges"/>
+                <text x="1372" y="460" class="label">ALU</text>
+                <text x="1372" y="495" class="data-label">R: {{ cpuDisplay.aluResult }}</text> </g>
+
+            <rect id="DataMemo" x="1569" y="246" width="235" height="439" 
+                  class="box" 
+                  :class="{'box-active': (cpuDisplay.controlSignals.MemRead || cpuDisplay.controlSignals.MemWrite) && cpuDisplay.controlSignals.IorD === 1}" />
+            <text x="1686" y="445" class="label">Data Memory</text>
+
+            <path id="PCMux" d="M289 526.166L261 510V592.166L289 576V526.166Z" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlSignals.PCSource !== undefined}" />
+            
+            <path id="PCadder" d="M379.5 388.5L432 362.5V388.5L406.5 403V437L432 449.5V477L379.5 449.5V388.5Z" 
+                  class="box" 
+                  :class="{'box-active': cpuDisplay.controlSignals.ALUSrcA === 0 && cpuDisplay.controlSignals.ALUSrcB === 0 && cpuDisplay.controlSignals.ALUOp === 'ADD'}" />
+
+            <line id="PCtoInstOrPCadderPath" x1="495" y1="554.5" x2="570" y2="554.5" 
+                  class="wire" 
+                  :class="{'wire-active': cpuDisplay.controlSignals.PCRead}" />
+            
+            <g id="PCcurrentPath">
+                <line x1="526.5" y1="555" x2="526.5" y2="462" class="wire" :class="{'wire-active': cpuDisplay.controlSignals.PCRead}" />
+                <line x1="527" y1="462.5" x2="432" y2="462.5" class="wire" :class="{'wire-active': cpuDisplay.controlSignals.PCRead}" />
+            </g>
+
+            <g id="PCcurADD4Path">
+                <line x1="379" y1="414.5" x2="209" y2="414.5" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.ALUSrcA === 0 && cpuDisplay.controlSignals.ALUOp === 'ADD'}" />
+                <line x1="209.5" y1="414" x2="209.5" y2="533" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.ALUSrcA === 0 && cpuDisplay.controlSignals.ALUOp === 'ADD'}" />
+                <line x1="209" y1="532.5" x2="256" y2="532.5" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.ALUSrcA === 0 && cpuDisplay.controlSignals.ALUOp === 'ADD'}" />
+            </g>
+            
+            <line id="PCnextPath" x1="289" y1="550.5" x2="324" y2="550.5" 
+                  class="wire" :class="{'wire-active': cpuDisplay.controlSignals.PCWrite}" />
+
+            <line id="R1readAddr" x1="847" y1="313.5" x2="953" y2="313.5" 
+                  class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegRead}" />
+            
+            <line id="R2readAddr" x1="847" y1="380.5" x2="953" y2="380.5" 
+                  class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegRead}" />
+
+            <line id="RegWrite4to7" x1="847" y1="520.5" x2="907" y2="520.5" 
+                  class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegWrite}" />
+            
+            <line id="RegToALUpathD1" x1="1191" y1="327.5" x2="1308" y2="327.5" 
+                  class="wire" 
+                  :class="{'wire-active': cpuDisplay.controlSignals.ALUSrcA === 1}" />
+
+            <line id="ALUtoDataMemoPath" x1="1435" y1="448.5" x2="1569" y2="448.5" 
+                  class="wire" 
+                  :class="{'wire-active': (cpuDisplay.controlSignals.MemRead || cpuDisplay.controlSignals.MemWrite) && cpuDisplay.controlSignals.IorD === 1}" />
+            
+            <g id="ALUtoRegDataPath">
+                <line x1="881" y1="673.5" x2="907" y2="673.5" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegWrite && cpuDisplay.controlSignals.MemToReg === 0}" />
+                <line x1="881.5" y1="674" x2="881.5" y2="735" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegWrite && cpuDisplay.controlSignals.MemToReg === 0}" />
+                <line x1="881" y1="734.5" x2="1494" y2="734.5" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegWrite && cpuDisplay.controlSignals.MemToReg === 0}" />
+                <line x1="1493.5" y1="735" x2="1493.5" y2="449" 
+                      class="wire" :class="{'wire-active': cpuDisplay.controlSignals.RegWrite && cpuDisplay.controlSignals.MemToReg === 0}" />
+            </g>
+
+            <g id="InstBusToAnyway_and_INSTtoMainPath">
+                <line x1="803" y1="348.5" x2="847" y2="348.5" class="wire" :class="{'wire-active': cpuDisplay.currentState === 'DECODE'}" />
+                <line x1="847.5" y1="196" x2="847.5" y2="614" class="wire" :class="{'wire-active': cpuDisplay.currentState === 'DECODE'}" />
+                <line x1="847" y1="348.5" x2="847" y2="876" 
+                      class="control-line" :class="{'control-line-active': cpuDisplay.controlROMActive}" />
+            </g>
+            
+            <g id="ControlToPCMUXPath">
+                <line x1="275.5" y1="586" x2="275.5" y2="908" 
+                      class="control-line" :class="{'control-line-active': cpuDisplay.controlSignals.PCSource !== undefined}" />
+                <line x1="275" y1="907.5" x2="847" y2="907.5" 
+                      class="control-line" :class="{'control-line-active': cpuDisplay.controlSignals.PCSource !== undefined}" />
+            </g>
+            
+            <g id="ControlToRegPath_and_more">
+                <line x1="1040.5" y1="685" x2="1040.5" y2="876" 
+                      class="control-line" :class="{'control-line-active': cpuDisplay.controlSignals.RegWrite}" />
+                <line x1="957" y1="685" x2="1040" y2="685" 
+                      class="control-line" :class="{'control-line-active': cpuDisplay.controlSignals.RegWrite}" />
+            </g>
+            
+            <line id="ControlToALUPath" x1="1391.5" y1="575" x2="1391.5" y2="876" 
+                  class="control-line" :class="{'control-line-active': cpuDisplay.controlSignals.ALUOp !== 'IDLE'}" />
+
+            <line id="ControlToDataEnPath" x1="1687.5" y1="685" x2="1687.5" y2="876" 
+                  class="control-line" 
+                  :class="{'control-line-active': (cpuDisplay.controlSignals.MemRead || cpuDisplay.controlSignals.MemWrite) && cpuDisplay.controlSignals.IorD === 1}" />
+            
+            </svg>
+
+    </div>
+
+    <div class="flex space-x-6 w-full max-w-7xl">
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl flex-1">
+            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2">MIPS 組合語言</h2>
+            <textarea v-model="assemblyCode" class="w-full h-48 p-2 rounded bg-gray-900 font-mono text-sm border border-gray-700"></textarea>
+            <button @click="handleAssembleAndLoad" class="bg-purple-600 hover:bg-purple-700 w-full p-3 rounded font-bold transition-colors shadow-lg mt-4">
+                組譯並載入 (Assemble & Load)
+            </button>
+        </div>
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl">
+            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2">控制面板</h2>
+            <div class="flex flex-col space-y-4">
+                <button @click="handleStep" class="bg-blue-600 hover:bg-blue-700 w-full p-3 rounded font-bold transition-colors shadow-lg">Run 1 Step</button>
+                <button @click="handleRunInstruction" class="bg-green-600 hover:bg-green-700 w-full p-3 rounded font-bold transition-colors shadow-lg">Run 1 Instruction</button>
+            </div>
+        </div>
+    </div>
+
+</div> <script>
+    
+    /*********************************************
+     * * 輔助類別 (Memory / RegisterBank / Assembler)
+     *********************************************/
+    class Memory {
+        constructor(size = 1024) { this.data = new Array(size).fill(0); }
+        read(address) { return this.data[address]; }
+        write(address, value) { this.data[address] = value; }
+    }
+    class RegisterBank {
+        constructor() { this.registers = new Array(32).fill(0); }
+        read(regIndex) { return this.registers[regIndex]; }
+        write(regIndex, value) { if (regIndex !== 0) { this.registers[regIndex] = value; }}
+    }
+    class MockAssembler {
+        assemble(text) {
+            let machineCode = [];
+            const lines = text.split('\n');
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine === 'addi $t0, $zero, 5') {
+                    machineCode.push(0x20080005); // rs=0, rt=8, imm=5
+                } else if (trimmedLine === 'addi $t1, $t0, 10') {
+                    machineCode.push(0x2109000A); // rs=8, rt=9, imm=10
+                } else if (trimmedLine === 'nop') { // 加入 nop 指令
+                    machineCode.push(0x00000000);
+                }
+            });
+            return machineCode;
+        }
+    }
+
+    /*********************************************
+     * * 核心：MIPS CPU 類別 (v5 邏輯)
+     *********************************************/
+    class MipsCPU {
+        constructor() {
+            this.instructionMemory = new Memory(1024);
+            this.dataMemory = new Memory(1024);
+            this.registers = new RegisterBank();
+            this.pc = 0;
+            this.currentState = 'FETCH';
+            this.controlSignals = {};
+            this._resetControlSignals(); 
+            this.currentInstruction = 0;
+            this.aluResult = 0;
+            this.opcode = 0;
+            this.rs = 0;
+            this.rt = 0;
+            this.imm = 0;
+        }
+        
+        _resetControlSignals() {
+            this.controlSignals = {
+                PCRead: false, PCWrite: false, MemRead: false, MemWrite: false,
+                RegRead: false, RegWrite: false, IorD: undefined, ALUSrcA: undefined,
+                ALUSrcB: undefined, ALUOp: 'IDLE', MemToReg: undefined, PCSource: undefined
+            };
+        }
+        
+        loadProgram(machineCodeArray) {
+            this.instructionMemory = new Memory(1024); 
+            this.registers = new RegisterBank(); 
+            machineCodeArray.forEach((instruction, index) => {
+                this.instructionMemory.write(index * 4, instruction);
+            });
+            this.pc = 0;
+            this.currentState = 'FETCH';
+            this._resetControlSignals(); 
+        }
+
+        step() {
+            this._resetControlSignals(); 
+
+            switch (this.currentState) {
+                case 'FETCH':
+                    this.controlSignals.PCRead = true;
+                    this.controlSignals.MemRead = true;
+                    this.controlSignals.IorD = 0;
+                    this.controlSignals.ALUSrcA = 0; 
+                    this.controlSignals.ALUSrcB = 0; 
+                    this.controlSignals.ALUOp = 'ADD'; 
+                    this.controlSignals.PCWrite = true; 
+                    this.currentInstruction = this.instructionMemory.read(this.pc);
+                    this.aluResult = this.pc + 4; 
+                    this.pc = this.aluResult;     
+                    this.currentState = 'DECODE';
+                    break;
+                case 'DECODE':
+                    this.controlSignals.RegRead = true; 
+                    this.opcode = this.currentInstruction >> 26;
+                    this.rs = (this.currentInstruction >> 21) & 0x1F;
+                    this.rt = (this.currentInstruction >> 16) & 0x1F;
+                    this.imm = this.currentInstruction & 0xFFFF;
+                    this.currentState = 'EXECUTE';
+                    break;
+                case 'EXECUTE':
+                    if (this.opcode === 8) { // addi
+                        this.controlSignals.ALUSrcA = 1; 
+                        this.controlSignals.ALUSrcB = 2; 
+                        this.controlSignals.ALUOp = 'ADD';
+                        this.aluResult = this.registers.read(this.rs) + this.imm;
+                        this.currentState = 'WRITEBACK'; 
+                    } else if (this.opcode === 0) { // NOP
+                        this.currentState = 'FETCH'; 
+                    } else {
+                        this.currentState = 'MEMORY'; 
+                    }
+                    break;
+                case 'MEMORY':
+                    this.currentState = 'WRITEBACK';
+                    break;
+                case 'WRITEBACK':
+                    if (this.opcode === 8) { // addi
+                        this.controlSignals.RegWrite = true;
+                        this.controlSignals.MemToReg = 0; 
+                        this.registers.write(this.rt, this.aluResult); 
+                    }
+                    this.currentState = 'FETCH';
+                    break;
+            }
+        }
+        runInstruction() {
+            if (this.currentState !== 'FETCH') { return; }
+            do { this.step(); } while (this.currentState !== 'FETCH');
+        }
+    }
+
+    /*********************************************
+     * * Vue App (黏合劑)
+     *********************************************/
+    const { createApp, reactive, ref } = Vue
+
+    createApp({
+        setup() {
+            const cpu = new MipsCPU();
+            const assembler = new MockAssembler();
+
+            const cpuDisplay = reactive({
+                currentState: cpu.currentState,
+                pc: cpu.pc,
+                aluResult: cpu.aluResult,
+                mem0: cpu.instructionMemory.read(0),
+                reg8: cpu.registers.read(8),
+                reg9: cpu.registers.read(9),
+                controlSignals: { ...cpu.controlSignals },
+                controlROMActive: false 
+            });
+            
+            const assemblyCode = ref('addi $t0, $zero, 5\naddi $t1, $t0, 10\nnop');
+
+            const updateDisplay = () => {
+                cpuDisplay.currentState = cpu.currentState;
+                cpuDisplay.pc = cpu.pc;
+                cpuDisplay.aluResult = cpu.aluResult;
+                cpuDisplay.mem0 = cpu.instructionMemory.read(0);
+                cpuDisplay.reg8 = cpu.registers.read(8);
+                cpuDisplay.reg9 = cpu.registers.read(9);
+                cpuDisplay.controlSignals = { ...cpu.controlSignals };
+                
+                const anySignalActive = Object.values(cpu.controlSignals).some(signal => signal !== false && signal !== undefined && signal !== 'IDLE');
+                cpuDisplay.controlROMActive = anySignalActive;
+            }
+
+            const handleStep = () => { cpu.step(); updateDisplay(); }
+            const handleRunInstruction = () => { cpu.runInstruction(); updateDisplay(); }
+            const handleAssembleAndLoad = () => {
+                const machineCode = assembler.assemble(assemblyCode.value);
+                cpu.loadProgram(machineCode);
+                updateDisplay();
+            }
+
+            return {
+                cpuDisplay,
+                assemblyCode,
+                handleStep,
+                handleRunInstruction,
+                handleAssembleAndLoad
+            }
+        }
+    }).mount('#app')
+</script>
+
+</body>
+</html>
