@@ -1,0 +1,106 @@
+// src/registry.js
+export const ChipRegistry = {
+  'AND': { inputs: ['A', 'B'], outputs: ['OUT'] },
+  'OR':  { inputs: ['A', 'B'], outputs: ['OUT'] },
+  'NAND':{ inputs: ['A', 'B'], outputs: ['OUT'] },
+  'NOT': { inputs: ['In'], outputs: ['OUT'] },
+  
+  'XOR': {
+    inputs: ['A', 'B'],
+    outputs: ['OUT'],
+    components: [
+      { id: 'n1', type: 'OR', x: 50, y: 50, value: 0 },
+      { id: 'n2', type: 'NAND', x: 50, y: 150, value: 0 },
+      { id: 'n3', type: 'AND', x: 200, y: 100, value: 0 }
+    ],
+    wires: [
+      { from: 'n1', to: 'n3' }, { from: 'n2', to: 'n3' },
+      { from: 'A', to: 'n1', toPin: 'A' }, { from: 'A', to: 'n2', toPin: 'A' },
+      { from: 'B', to: 'n1', toPin: 'B' }, { from: 'B', to: 'n2', toPin: 'B' }
+    ],
+    ioMapping: {
+      inputs: { 
+        'A': [ { id: 'n1', pin: 'A' }, { id: 'n2', pin: 'A' } ], 
+        'B': [ { id: 'n1', pin: 'B' }, { id: 'n2', pin: 'B' } ] 
+      }, 
+      output: 'n3'
+    }
+  },
+
+  'HALF_ADDER': {
+    inputs: ['A', 'B'],
+    ioMapping: {
+      inputs: { 
+        'A': [ { id: 'xor0', pin: 'A' }, { id: 'and0', pin: 'A' } ], 
+        'B': [ { id: 'xor0', pin: 'B' }, { id: 'and0', pin: 'B' } ] 
+      },
+      output: 'xor0', 
+      outputs: { 'SUM': 'xor0', 'CARRY': 'and0' }
+    },
+    components: [
+      { id: 'xor0', type: 'XOR', x: 200, y: 50, value: 0 },
+      { id: 'and0', type: 'AND', x: 200, y: 200, value: 0 }
+    ],
+    wires: [
+      { from: 'A', to: 'xor0', toPin: 'A' }, { from: 'A', to: 'and0', toPin: 'A' },
+      { from: 'B', to: 'xor0', toPin: 'B' }, { from: 'B', to: 'and0', toPin: 'B' }
+    ]
+  },
+
+  'FULL_ADDER': {
+    inputs: ['A', 'B', 'Cin'],
+    outputs: ['SUM', 'Cout'],
+    components: [
+      { id: 'ha1', type: 'HALF_ADDER', x: 50, y: 50, value: 0 },
+      { id: 'ha2', type: 'HALF_ADDER', x: 400, y: 50, value: 0 },
+      { id: 'or1', type: 'OR', x: 400, y: 250, value: 0 }
+    ],
+    wires: [
+      { from: 'ha1', fromPin: 'SUM', to: 'ha2', toPin: 'A' },
+      { from: 'ha1', fromPin: 'CARRY', to: 'or1' },
+      { from: 'ha2', fromPin: 'CARRY', to: 'or1' },
+      { from: 'A', to: 'ha1', toPin: 'A' },
+      { from: 'B', to: 'ha1', toPin: 'B' },
+      { from: 'Cin', to: 'ha2', toPin: 'B' }
+    ],
+    ioMapping: {
+      inputs: {
+        'A': [ { id: 'ha1', pin: 'A' } ], 
+        'B': [ { id: 'ha1', pin: 'B' } ],
+        'Cin': [ { id: 'ha2', pin: 'B' } ] 
+      },
+      output: 'ha2', 
+      outputs: { 'SUM': 'ha2', 'Cout': 'or1' }
+    }
+  },
+
+  'ADDER_4_BIT': {
+    inputs: ['A0', 'B0', 'A1', 'B1', 'A2', 'B2', 'A3', 'B3'], 
+    outputs: ['S0', 'S1', 'S2', 'S3', 'Cout'],
+    components: [
+      { id: 'fa0', type: 'FULL_ADDER', x: 50, y: 50, value: 0 },
+      { id: 'fa1', type: 'FULL_ADDER', x: 350, y: 50, value: 0 },
+      { id: 'fa2', type: 'FULL_ADDER', x: 650, y: 50, value: 0 },
+      { id: 'fa3', type: 'FULL_ADDER', x: 950, y: 50, value: 0 }
+    ],
+    wires: [
+      { from: 'fa0', fromPin: 'Cout', to: 'fa1', toPin: 'Cin' },
+      { from: 'fa1', fromPin: 'Cout', to: 'fa2', toPin: 'Cin' },
+      { from: 'fa2', fromPin: 'Cout', to: 'fa3', toPin: 'Cin' },
+      { from: 'A0', to: 'fa0', toPin: 'A' }, { from: 'B0', to: 'fa0', toPin: 'B' },
+      { from: 'A1', to: 'fa1', toPin: 'A' }, { from: 'B1', to: 'fa1', toPin: 'B' },
+      { from: 'A2', to: 'fa2', toPin: 'A' }, { from: 'B2', to: 'fa2', toPin: 'B' },
+      { from: 'A3', to: 'fa3', toPin: 'A' }, { from: 'B3', to: 'fa3', toPin: 'B' }
+    ],
+    ioMapping: {
+      inputs: {
+        'A0': [{id:'fa0',pin:'A'}], 'B0': [{id:'fa0',pin:'B'}],
+        'A1': [{id:'fa1',pin:'A'}], 'B1': [{id:'fa1',pin:'B'}],
+        'A2': [{id:'fa2',pin:'A'}], 'B2': [{id:'fa2',pin:'B'}],
+        'A3': [{id:'fa3',pin:'A'}], 'B3': [{id:'fa3',pin:'B'}],
+      },
+      output: 'fa3',
+      outputs: { 'S0':'fa0', 'S1':'fa1', 'S2':'fa2', 'S3':'fa3', 'Cout':'fa3' }
+    }
+  }
+};
