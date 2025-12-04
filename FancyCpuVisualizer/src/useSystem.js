@@ -181,9 +181,31 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
       // 3. 將內部結果映射回外部輸出 (Output States)
       if (mapping.outputs) {
         Object.keys(mapping.outputs).forEach(portName => {
-          const internalId = mapping.outputs[portName];
+          const target = mapping.outputs[portName];
+          let internalId, internalPin;
+
+          // 判斷定義是純字串 ID，還是 { id, pin } 物件
+          if (typeof target === 'object') {
+            internalId = target.id;
+            internalPin = target.pin;
+          } else {
+            internalId = target;
+            internalPin = null;
+          }
+
           const internalComp = comp.internals.components.find(c => c.id === internalId);
-          comp.outputStates[portName] = internalComp ? internalComp.value : 0;
+          
+          if (internalComp) {
+            if (internalPin && internalComp.outputStates && internalComp.outputStates[internalPin] !== undefined) {
+              // 情況 A: 指定了 Pin，且該元件有 outputStates (例如 Full Adder 的 Cout)
+              comp.outputStates[portName] = internalComp.outputStates[internalPin];
+            } else {
+              // 情況 B: 沒指定 Pin，或找不到該 Pin，則使用主數值 (Value)
+              comp.outputStates[portName] = internalComp.value;
+            }
+          } else {
+            comp.outputStates[portName] = 0;
+          }
         });
       }
 

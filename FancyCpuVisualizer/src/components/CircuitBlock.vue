@@ -219,7 +219,18 @@ const allInternalWires = computed(() => {
     const wallX = containerSize.w; 
     
     Object.keys(registry.ioMapping.outputs).forEach((outName, index) => {
-      const sourceId = registry.ioMapping.outputs[outName];
+      // 1. 解析定義 (支援 String 或 Object)
+      const target = registry.ioMapping.outputs[outName];
+      let sourceId, sourcePin;
+      
+      if (typeof target === 'object') {
+        sourceId = target.id;
+        sourcePin = target.pin;
+      } else {
+        sourceId = target;
+        sourcePin = null;
+      }
+
       const sourceComp = components.find(c => c.id === sourceId);
       
       if (sourceComp) {
@@ -227,14 +238,34 @@ const allInternalWires = computed(() => {
         let startX = sourceComp.x + size.w;
         let startY = sourceComp.y + 40;
 
+        // 2. 如果來源元件展開，嘗試對齊特定的 Output Pin
         if (sourceComp.expanded) {
-           startY = sourceComp.y + (size.h / 2);
+           // 嘗試尋找 Pin 的位置
+           const sourceOutputs = ChipRegistry[sourceComp.type]?.ioMapping?.outputs || {};
+           const outKeys = Object.keys(sourceOutputs);
+           const pinIndex = sourcePin ? outKeys.indexOf(sourcePin) : -1;
+           
+           if (pinIndex !== -1) {
+             // 對齊子元件右側的 Pin 面板
+             startY = sourceComp.y + 25 + (pinIndex * 35);
+             startX += 70; // 延伸到 Pin 面板邊緣
+           } else {
+             // 找不到 Pin 或沒指定，就從中心出發
+             startY = sourceComp.y + (size.h / 2);
+           }
         }
 
         const endX = wallX; 
         const endY = 25 + (index * 35); 
 
-        const isActive = sourceComp.value === 1; 
+        // 3. 判斷線路是否發光
+        let isActive = false;
+        if (sourcePin && sourceComp.outputStates) {
+          isActive = sourceComp.outputStates[sourcePin] === 1;
+        } else {
+          isActive = sourceComp.value === 1;
+        }
+
         const cp1X = startX + 50;
         const cp2X = endX - 50;
         renderedWires.push({

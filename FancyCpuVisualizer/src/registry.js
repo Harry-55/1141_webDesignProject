@@ -4,7 +4,7 @@ export const ChipRegistry = {
   'OR':  { inputs: ['A', 'B'], outputs: ['OUT'] },
   'NAND':{ inputs: ['A', 'B'], outputs: ['OUT'] },
   'NOT': { inputs: ['In'], outputs: ['OUT'] },
-  
+
   'XOR': {
     inputs: ['A', 'B'],
     outputs: ['OUT'],
@@ -24,6 +24,41 @@ export const ChipRegistry = {
         'B': [ { id: 'n1', pin: 'B' }, { id: 'n2', pin: 'B' } ] 
       }, 
       output: 'n3'
+    }
+  },
+
+  'MUX': {
+    inputs: ['A', 'B', 'Sel'],
+    outputs: ['OUT'],
+    components: [
+      { id: 'not1', type: 'NOT', x: 50, y: 150, value: 0 },
+      { id: 'and1', type: 'AND', x: 200, y: 50, value: 0 }, // 處理 A
+      { id: 'and2', type: 'AND', x: 200, y: 200, value: 0 }, // 處理 B
+      { id: 'or1',  type: 'OR',  x: 350, y: 125, value: 0 }
+    ],
+    wires: [
+      // Sel 的反向訊號控制 A
+      { from: 'Sel', to: 'not1', toPin: 'In' }, 
+      { from: 'not1', to: 'and1', toPin: 'B' }, // 假設 AND 的 B 腳位接收控制訊號
+      
+      // Sel 直接控制 B
+      { from: 'Sel', to: 'and2', toPin: 'B' },
+
+      // 資料輸入
+      { from: 'A', to: 'and1', toPin: 'A' },
+      { from: 'B', to: 'and2', toPin: 'A' },
+
+      // 匯總輸出
+      { from: 'and1', to: 'or1', toPin: 'A' },
+      { from: 'and2', to: 'or1', toPin: 'B' }
+    ],
+    ioMapping: {
+      inputs: {
+        'A':   [{ id: 'and1', pin: 'A' }],
+        'B':   [{ id: 'and2', pin: 'A' }],
+        'Sel': [{ id: 'not1', pin: 'In' }, { id: 'and2', pin: 'B' }]
+      },
+      output: 'or1'
     }
   },
 
@@ -99,8 +134,15 @@ export const ChipRegistry = {
         'A2': [{id:'fa2',pin:'A'}], 'B2': [{id:'fa2',pin:'B'}],
         'A3': [{id:'fa3',pin:'A'}], 'B3': [{id:'fa3',pin:'B'}],
       },
-      output: 'fa3',
-      outputs: { 'S0':'fa0', 'S1':'fa1', 'S2':'fa2', 'S3':'fa3', 'Cout':'fa3' }
+      output: 'fa3', // 主輸出預設還是 S3 (sum)
+      outputs: { 
+        'S0': 'fa0', 
+        'S1': 'fa1', 
+        'S2': 'fa2', 
+        // 🔴 關鍵修正：這裡要明確指定去抓 Full Adder 的哪一隻腳
+        'S3':   { id: 'fa3', pin: 'SUM' }, 
+        'Cout': { id: 'fa3', pin: 'Cout' } 
+      }
     }
   }
 };
