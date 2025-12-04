@@ -13,53 +13,94 @@ export const systemState = reactive({
 /**
  * 1. 組譯代碼並初始化所有元件 (包含內層遞迴結構)
  */
+// src/useSystem.js -> assembleCode
+
 export function assembleCode(code) {
-  // 清空狀態
+  // 1. 清空舊狀態
   systemState.components = [];
   systemState.wires = []; 
   
-  const lines = code.split('\n');
+  const lines = code.split('\n').map(l => l.trim()).filter(l => l);
+
+  // 2. 第一遍掃描：先建立所有 Components (確保連線時找得到人)
   lines.forEach(line => {
-    const parts = line.trim().split(/\s+/);
+    const parts = line.split(/\s+/);
     if (parts.length < 2) return;
-    
     const type = parts[0].toUpperCase();
-    
-    if (type === 'WIRE' && parts.length >= 3) {
-      // 處理連線: WIRE Source Target [SourcePin] [TargetPin]
-      systemState.wires.push({ 
-        from: parts[1], 
-        to: parts[2],
-        fromPin: parts[3] || null, // 支援指定腳位
-        toPin: parts[4] || null
-      });
-    } else if (parts.length >= 4) {
-      // 處理元件: TYPE ID X Y
+
+    // 跳過 WIRE 指令，只處理元件宣告
+    if (type === 'WIRE') return;
+
+    if (parts.length >= 4) {
       const [_, id, x, y] = parts;
       
-      // 建立元件基礎物件
       const comp = {
         id: id,
         type: type,
         x: parseInt(x),
         y: parseInt(y),
-        value: 0, // 單一輸出值 (相容舊邏輯)
+        value: 0,
         expanded: false,
-        inputStates: {},  // 所有輸入腳位的狀態
-        outputStates: {}, // 所有輸出腳位的狀態
-        internals: null   // 內部結構
+        inputStates: {},
+        outputStates: {},
+        internals: null
       };
 
-      // **關鍵修正**: 立即遞迴建立內部結構，不要等到模擬時才做
       if (ChipRegistry[type]) {
         comp.internals = buildInternals(type);
       }
-
       systemState.components.push(comp);
     }
   });
 
-  // 初始化完畢後，立即執行一次模擬以設定初始狀態
+  // 3. 第二遍掃描：處理 WIRE 連線
+  lines.forEach(line => {
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) return;
+    const type = parts[0].toUpperCase();
+
+    if (type === 'WIRE' && parts.length >= 3) {
+      const sourceId = parts[1];
+      const targetId = parts[2];
+      const arg1 = parts[3]; // 可能是 fromPin，也可能是 toPin
+      const arg2 = parts[4]; // 如果有這個，那它肯定是 toPin
+
+      let fromPin = null;
+      let toPin = null;
+
+      if (arg2) {
+        // 5個參數: WIRE Src Tgt SrcPin TgtPin
+        fromPin = arg1;
+        toPin = arg2;
+      } else if (arg1) {
+        // 4個參數: WIRE Src Tgt PinName
+        // 這裡要判斷 PinName 是屬於來源的輸出，還是目標的輸入？
+        
+        const targetComp = systemState.components.find(c => c.id === targetId);
+        
+        // 檢查目標元件是否有這個輸入腳位 (例如 MUX 有 'A', 'B', 'Sel')
+        const targetDef = targetComp ? ChipRegistry[targetComp.type] : null;
+        const isTargetInput = targetDef && targetDef.inputs && targetDef.inputs.includes(arg1);
+
+        if (isTargetInput) {
+          // 如果名字吻合目標的 Input，那它就是 toPin
+          toPin = arg1;
+        } else {
+          // 否則預設它是來源的 fromPin (例如 HalfAdder 的 Sum)
+          fromPin = arg1;
+        }
+      }
+
+      systemState.wires.push({ 
+        from: sourceId, 
+        to: targetId, 
+        fromPin: fromPin, 
+        toPin: toPin 
+      });
+    }
+  });
+
+  // 4. 執行初始模擬
   evaluateSystem();
 }
 
@@ -125,18 +166,15 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
 
   components.forEach(comp => {
     // A. 收集輸入訊號
-    // ----------------------------------------------------
     const oldInputs = JSON.stringify(comp.inputStates);
     const newInputs = getInputs(comp, wires, components, parentInputs, scopeInputs);
     
-    // 檢查輸入是否改變
     if (JSON.stringify(newInputs) !== oldInputs) {
       comp.inputStates = newInputs;
       scopeChanged = true;
     }
 
     // B. 計算邏輯 (包含遞迴進入子晶片)
-    // ----------------------------------------------------
     const oldVal = comp.value;
     const oldOutputStates = JSON.stringify(comp.outputStates);
 
@@ -144,47 +182,23 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
       // === 複合晶片 (Custom Chip) ===
       const mapping = ChipRegistry[comp.type].ioMapping;
       
-      // 1. 將外部輸入 (comp.inputStates) 映射到內部子元件的 parentInputs
-      const internalParentInputs = {};
-      
-      Object.keys(newInputs).forEach(pinName => {
-        const val = newInputs[pinName];
-        const targets = mapping.inputs[pinName] || []; // 支援一個 Pin 接到內部多個地方
-        
-        targets.forEach(target => {
-          let tId, tPin;
-          if (typeof target === 'object') { tId = target.id; tPin = target.pin; } 
-          else { tId = target; tPin = null; }
-
-          if (!internalParentInputs[tId]) internalParentInputs[tId] = {};
-          
-          if (tPin) {
-            internalParentInputs[tId][tPin] = val;
-          } else {
-            // 處理像 Bus 一樣的輸入 (例如 Array)
-            if (!internalParentInputs[tId]['__array__']) internalParentInputs[tId]['__array__'] = [];
-            internalParentInputs[tId]['__array__'].push(val);
-          }
-        });
-      });
-
-      // 2. 遞迴模擬內部
+      // 🟢 修正：不再建立複雜的 internalParentInputs 映射表
+      // 直接把當前層級的 Inputs (newInputs) 傳進去，讓內部的 Wires 自己去對應
       const internalChanged = simulateScope(
         comp.internals.components, 
         comp.internals.wires, 
-        internalParentInputs, // 來自外部的輸入
-        newInputs             // 當前 Scope 的輸入 (作為 fallback)
+        newInputs, // <--- 直接傳遞原始輸入 Map { A:0, B:0, Sel:1 }
+        newInputs  // 當作 scopeInputs (雖然這裡 parentInputs 已經夠用)
       );
 
       if (internalChanged) scopeChanged = true;
 
-      // 3. 將內部結果映射回外部輸出 (Output States)
+      // 3. 將內部結果映射回外部輸出 (Output States) - 這部分維持不變
       if (mapping.outputs) {
         Object.keys(mapping.outputs).forEach(portName => {
           const target = mapping.outputs[portName];
           let internalId, internalPin;
 
-          // 判斷定義是純字串 ID，還是 { id, pin } 物件
           if (typeof target === 'object') {
             internalId = target.id;
             internalPin = target.pin;
@@ -197,10 +211,8 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
           
           if (internalComp) {
             if (internalPin && internalComp.outputStates && internalComp.outputStates[internalPin] !== undefined) {
-              // 情況 A: 指定了 Pin，且該元件有 outputStates (例如 Full Adder 的 Cout)
               comp.outputStates[portName] = internalComp.outputStates[internalPin];
             } else {
-              // 情況 B: 沒指定 Pin，或找不到該 Pin，則使用主數值 (Value)
               comp.outputStates[portName] = internalComp.value;
             }
           } else {
@@ -209,7 +221,7 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
         });
       }
 
-      // 4. 設定主輸出 (Main Value)
+      // 4. 設定主輸出
       const outputId = typeof mapping.output === 'string' ? mapping.output : mapping.output?.main;
       if (outputId) {
         const outputComp = comp.internals.components.find(c => c.id === outputId);
@@ -218,17 +230,11 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
 
     } else {
       // === 基本邏輯閘 (Basic Gate) ===
-      const inputValues = Object.keys(newInputs).sort().map(k => newInputs[k]);
-      // 確保順序: 這裡簡單假設 Object keys 排序，更嚴謹應該依賴 registry 定義的 inputs 順序
-      // 但為了簡單起見，我們用 calculateLogic 處理
+      // ... (維持不變)
       comp.value = calculateLogic(comp.type, newInputs, comp.value);
-      
-      // 基本閘的 outputStates 通常就是 value，但也可能有多輸出
       comp.outputStates = { OUT: comp.value }; 
     }
 
-    // C. 檢查輸出是否改變 (Dirty Check)
-    // ----------------------------------------------------
     if (comp.value !== oldVal || JSON.stringify(comp.outputStates) !== oldOutputStates) {
       scopeChanged = true;
     }
@@ -240,18 +246,31 @@ function simulateScope(components, wires, parentInputs = {}, scopeInputs = {}) {
 /**
  * 計算基本邏輯閘
  */
+// src/useSystem.js
+
 function calculateLogic(type, inputsMap, currentValue) {
   if (type === 'INPUT') return currentValue;
 
-  // 將 Map 轉為 Array，這裡需要注意順序，最好依賴 Registry 定義
   const registryDef = ChipRegistry[type];
   const inputOrder = registryDef ? registryDef.inputs : ['A', 'B']; 
-  const valArr = inputOrder.map(pin => inputsMap[pin] !== undefined ? inputsMap[pin] : 0);
+  
+  // 🛡️ 強制轉型為 Number，避免字串 "1" 或是 undefined 造成誤判
+  const valArr = inputOrder.map(pin => {
+    const val = inputsMap[pin];
+    return (val !== undefined) ? Number(val) : 0;
+  });
 
   const a = valArr[0];
   const b = valArr[1];
 
+  // Debug: 讓你確認當下發生什麼事
+  if (type === 'AND' && (a !== 1 || b !== 1) && (a === 1 && b === 1)) {
+     // 這行應該永遠不會執行，除非宇宙毀滅
+     console.error('Logic Error: Math is broken'); 
+  }
+
   switch (type) {
+    // 🛡️ 明確的 return，確保不會 fall-through
     case 'AND': return (a === 1 && b === 1) ? 1 : 0;
     case 'OR':  return (a === 1 || b === 1) ? 1 : 0;
     case 'NOT': return (a === 0) ? 1 : 0;
@@ -264,45 +283,41 @@ function calculateLogic(type, inputsMap, currentValue) {
 /**
  * 取得元件的輸入狀態
  */
+/**
+ * 取得元件的輸入狀態
+ */
 function getInputs(targetComp, wires, components, parentInputs, scopeInputs) {
   const inputMap = {};
   const definedInputs = ChipRegistry[targetComp.type]?.inputs || ['A', 'B'];
 
-  // 輔助函式：設定值
   const setVal = (pin, val) => {
-    // 簡單的競爭解決：後到的覆蓋先到的，或者保持既有
     inputMap[pin] = val;
   };
 
-  // 1. 來自 "Parent Inputs" (如果是子元件，父層傳進來的訊號)
-  if (parentInputs[targetComp.id]) {
-    const pIn = parentInputs[targetComp.id];
-    Object.keys(pIn).forEach(key => {
-      if (key !== '__array__') setVal(key, pIn[key]);
-    });
-  }
+  // 🟢 移除舊的 "Method 1: Parent Inputs Injection"
+  // 現在完全依賴 Wires 來傳遞訊號，這樣更符合硬體邏輯
 
   // 2. 來自 "Wires" (同層級的連線)
   wires.filter(w => w.to === targetComp.id).forEach(w => {
     let val = 0;
     
-    // 來源可能是同層級的其他元件
+    // 來源 A: 同層級的其他元件
     const sourceComp = components.find(c => c.id === w.from);
     
     if (sourceComp) {
-      // 從元件讀取輸出
       if (w.fromPin) {
-        // 如果連線指定了 fromPin (例如 "Cout")
         val = sourceComp.outputStates[w.fromPin] || 0;
       } else {
-        // 預設讀取主 value
         val = sourceComp.value;
       }
-    } else if (parentInputs[targetComp.id] && parentInputs[targetComp.id][w.from] !== undefined) {
-      // 來源可能是父層的輸入 Pin (Pass-through)
-      val = parentInputs[targetComp.id][w.from];
-    } else if (scopeInputs[w.from] !== undefined) {
-       // 頂層全域輸入
+    } 
+    // 來源 B: 父層傳進來的輸入 (Parent Inputs)
+    // 🟢 修正：直接檢查 parentInputs 是否有這個 key (例如 'A', 'B', 'Sel')
+    else if (parentInputs[w.from] !== undefined) {
+      val = parentInputs[w.from];
+    } 
+    // 來源 C: 頂層全域輸入
+    else if (scopeInputs[w.from] !== undefined) {
        val = scopeInputs[w.from];
     }
 
@@ -310,7 +325,6 @@ function getInputs(targetComp, wires, components, parentInputs, scopeInputs) {
     if (w.toPin) {
       setVal(w.toPin, val);
     } else {
-      // 智慧填充：如果沒指定 Pin，就找第一個空的
       const firstFreePin = definedInputs.find(pin => inputMap[pin] === undefined);
       if (firstFreePin) setVal(firstFreePin, val);
     }
@@ -318,7 +332,6 @@ function getInputs(targetComp, wires, components, parentInputs, scopeInputs) {
 
   return inputMap;
 }
-
 /**
  * 使用者互動：切換開關
  */

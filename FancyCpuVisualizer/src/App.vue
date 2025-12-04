@@ -13,14 +13,16 @@
         @mousemove="handleMouseMove" 
         @mouseup="handleMouseUp"
         @mouseleave="handleMouseUp"
-        :style="{ cursor: isPanning ? 'grabbing' : 'grab' }"
+        @wheel.prevent="handleWheel"  :style="{ cursor: isPanning ? 'grabbing' : 'grab' }"
       >
-        <h3>Renderer View</h3>
+        <h3>Renderer View (Zoom: {{ Math.round(zoom * 100) }}%)</h3>
         
         <div 
           class="viewport" 
-          :style="{ transform: `translate(${pan.x}px, ${pan.y}px)` }"
+          :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }"
         >
+        
+        <div class="helper-text">Scroll to Zoom • Drag to Pan</div>
           <svg class="wires-layer">
             <path 
               v-for="(wire, i) in wiresPaths" 
@@ -57,34 +59,36 @@ import CircuitBlock from './components/CircuitBlock.vue';
 
 // --- HDL 相關 ---
 const hdlCode = ref(`
+INPUT Sel 300 50
+
 INPUT A0 50 50
-INPUT B0 50 150
+INPUT A1 50 100
+INPUT A2 50 150
+INPUT A3 50 200
 
-INPUT A1 50 250
+INPUT B0 50 300
 INPUT B1 50 350
+INPUT B2 50 400
+INPUT B3 50 450
 
-INPUT A2 50 450
-INPUT B2 50 550
+MUX_4_BIT myMux4 400 150
 
-INPUT A3 50 650
-INPUT B3 50 750
-
-ADDER_4_BIT Adder 400 300
-
-WIRE A0 Adder
-WIRE B0 Adder
-WIRE A1 Adder
-WIRE B1 Adder
-WIRE A2 Adder
-WIRE B2 Adder
-WIRE A3 Adder
-WIRE B3 Adder
+WIRE Sel myMux4 Sel
+WIRE A0 myMux4 A0
+WIRE A1 myMux4 A1
+WIRE A2 myMux4 A2
+WIRE A3 myMux4 A3
+WIRE B0 myMux4 B0
+WIRE B1 myMux4 B1
+WIRE B2 myMux4 B2
+WIRE B3 myMux4 B3
 `);
 
 function runAssembler() { assembleCode(hdlCode.value); }
 
 // --- 互動狀態 ---
 const pan = reactive({ x: 0, y: 0 });
+const zoom = ref(1);
 const isPanning = ref(false);
 const lastMousePos = { x: 0, y: 0 };
 let draggingComp = null;
@@ -114,6 +118,27 @@ function handleMouseMove(event) {
     draggingComp.x = event.clientX - offsetX - pan.x;
     draggingComp.y = event.clientY - offsetY - pan.y;
   }
+}
+
+function handleWheel(event) {
+  if (!event.target.closest('.canvas-panel')) return;
+  
+  const zoomIntensity = 0.1;
+  const direction = event.deltaY > 0 ? -1 : 1; // 滾輪向下縮小，向上放大
+  const factor = 1 + (direction * zoomIntensity);
+  
+  // 限制縮放範圍 (0.2倍 ~ 5倍)
+  const newZoom = Math.max(0.2, Math.min(5, zoom.value * factor));
+  
+  // 計算滑鼠相對於視圖的偏移量，讓縮放是以滑鼠游標為中心
+  const mouseX = event.clientX;
+  const mouseY = event.clientY;
+  
+  // 數學魔法：調整 Pan 讓畫面不會亂跑
+  pan.x = mouseX - (mouseX - pan.x) * (newZoom / zoom.value);
+  pan.y = mouseY - (mouseY - pan.y) * (newZoom / zoom.value);
+  
+  zoom.value = newZoom;
 }
 
 function handleMouseUp() {
@@ -188,10 +213,84 @@ function getCompSize(c) {
 }
 </script>
 
+<style>
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #121212; /* 確保背景色一致 */
+}
+
+/* 讓按鈕和輸入框也繼承字體 */
+button, input, select, textarea {
+  font-family: inherit;
+}
+</style>
 <style scoped>
 .main-layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .workspace { display: flex; flex-grow: 1; overflow: hidden; }
-.editor-panel { width: 20%; padding: 10px; background: #f0f0f0; display: flex; flex-direction: column; z-index: 10; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+.editor-panel { 
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  width: 250px; /* 固定寬度稍微寬一點 */
+  padding: 15px; 
+  background: #1e1e1e; /* VS Code 風格背景 */
+  border-right: 1px solid #333;
+  display: flex; 
+  flex-direction: column; 
+  z-index: 10; 
+  box-shadow: 2px 0 10px rgba(0,0,0,0.3); 
+}
+.editor-panel h3 {
+  color: #ddd;
+  margin-top: 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.editor-panel textarea {
+  flex-grow: 1;
+  background: #252526;
+  color: #d4d4d4;
+  border: 1px solid #3e3e42;
+  border-radius: 4px;
+  padding: 10px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  resize: none;
+  outline: none;
+  margin-bottom: 10px;
+}
+
+.editor-panel textarea:focus {
+  border-color: #007fd4;
+}
+
+.editor-panel button {
+  background: #007fd4;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.editor-panel button:hover {
+  background: #0060a0;
+}
+
+/* Canvas 維持不變，稍微調整背景色讓層次分明 */
+.canvas-panel { 
+  flex-grow: 1; 
+  position: relative; 
+  background: #121212; /* 更深的背景 */
+  overflow: hidden; 
+  color: #fff; 
+}
+
 .canvas-panel { flex-grow: 1; position: relative; background: #222; overflow: hidden; color: #fff; }
 .viewport { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; }
 

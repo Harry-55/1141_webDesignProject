@@ -62,6 +62,58 @@ export const ChipRegistry = {
     }
   },
 
+  'MUX_4_BIT': {
+    // 定義 8 個資料輸入 + 1 個選擇訊號
+    inputs: ['A0', 'A1', 'A2', 'A3', 'B0', 'B1', 'B2', 'B3', 'Sel'],
+    outputs: ['Out0', 'Out1', 'Out2', 'Out3'],
+    components: [
+      // 4 個 1-bit MUX，分別處理每一個位元
+      { id: 'm0', type: 'MUX', x: 50, y: 50, value: 0 },
+      { id: 'm1', type: 'MUX', x: 50, y: 150, value: 0 },
+      { id: 'm2', type: 'MUX', x: 50, y: 250, value: 0 },
+      { id: 'm3', type: 'MUX', x: 50, y: 350, value: 0 }
+    ],
+    wires: [
+      // === 共用 Sel 訊號 (控制所有 MUX) ===
+      { from: 'Sel', to: 'm0', toPin: 'Sel' },
+      { from: 'Sel', to: 'm1', toPin: 'Sel' },
+      { from: 'Sel', to: 'm2', toPin: 'Sel' },
+      { from: 'Sel', to: 'm3', toPin: 'Sel' },
+
+      // === 資料位元 0 ===
+      { from: 'A0', to: 'm0', toPin: 'A' },
+      { from: 'B0', to: 'm0', toPin: 'B' },
+
+      // === 資料位元 1 ===
+      { from: 'A1', to: 'm1', toPin: 'A' },
+      { from: 'B1', to: 'm1', toPin: 'B' },
+
+      // === 資料位元 2 ===
+      { from: 'A2', to: 'm2', toPin: 'A' },
+      { from: 'B2', to: 'm2', toPin: 'B' },
+
+      // === 資料位元 3 ===
+      { from: 'A3', to: 'm3', toPin: 'A' },
+      { from: 'B3', to: 'm3', toPin: 'B' }
+    ],
+    ioMapping: {
+      inputs: {
+        'Sel': [{id:'m0',pin:'Sel'}, {id:'m1',pin:'Sel'}, {id:'m2',pin:'Sel'}, {id:'m3',pin:'Sel'}],
+        'A0': [{id:'m0',pin:'A'}], 'B0': [{id:'m0',pin:'B'}],
+        'A1': [{id:'m1',pin:'A'}], 'B1': [{id:'m1',pin:'B'}],
+        'A2': [{id:'m2',pin:'A'}], 'B2': [{id:'m2',pin:'B'}],
+        'A3': [{id:'m3',pin:'A'}], 'B3': [{id:'m3',pin:'B'}]
+      },
+      // 通常我們會希望能直接讀取每一位元的輸出
+      outputs: {
+        'Out0': 'm0',
+        'Out1': 'm1',
+        'Out2': 'm2',
+        'Out3': 'm3'
+      }
+    }
+  },
+
   'HALF_ADDER': {
     inputs: ['A', 'B'],
     ioMapping: {

@@ -7,14 +7,16 @@
     <div 
       v-if="!comp.expanded"
       class="component-box"
-      :class="{ 'on': comp.value === 1, 'is-custom': !!comp.internals, 'is-input': comp.type === 'INPUT' }"
+      :class="{ 'on': Number(comp.value) === 1, 'is-custom': !!comp.internals, 'is-input': comp.type === 'INPUT' }"
       @mousedown.stop="$emit('startDrag', $event, comp)"
     >
       <div class="header">{{ comp.type }}</div>
       <div class="body">{{ comp.id }}</div>
       <button v-if="comp.internals" class="expand-btn" @mousedown.stop @click="comp.expanded = true">Ex</button>
+      
       <div v-if="comp.outputStates" class="mini-pin-row">
-        <div v-for="(val, name) in comp.outputStates" :key="name" class="mini-pin" :class="{on: val===1}" :title="name"></div>
+        <div v-for="(val, name) in comp.outputStates" :key="name" 
+             class="mini-pin" :class="{on: Number(val) === 1}" :title="name"></div>
       </div>
     </div>
 
@@ -39,7 +41,7 @@
         <div class="input-ports-column">
           <div v-for="pin in inputPins" :key="pin" class="input-port-label">
             <span class="pin-text">{{ pin }}</span>
-            <div class="port-dot" :class="{ active: inputStates[pin] === 1 }"></div>
+            <div class="port-dot" :class="{ active: Number(inputStates[pin]) === 1 }"></div>
           </div>
         </div>
 
@@ -53,8 +55,8 @@
 
       <div class="output-pins-panel">
         <div v-for="(val, name) in comp.outputStates" :key="name" 
-             class="output-pin" :class="{ 'on': val === 1 }">
-          <div class="port-dot-left" :class="{active: val === 1}"></div>
+             class="output-pin" :class="{ 'on': Number(val) === 1 }">
+          <div class="port-dot-left" :class="{active: Number(val) === 1}"></div>
           <span class="pin-name">{{ name }}</span>
           <span class="pin-led"></span>
         </div>
@@ -128,7 +130,6 @@ function onInternalMouseUp() {
 // --- Wires & Pins ---
 const inputPins = computed(() => ChipRegistry[props.comp.type]?.inputs || []);
 
-// 🔴 關鍵修正：讀取 useSystem 算好的輸入狀態
 const inputStates = computed(() => {
   return props.comp.inputStates || {};
 });
@@ -166,10 +167,11 @@ const allInternalWires = computed(() => {
          startY = sourceComp.y + 40; 
       }
 
+      // 🛡️ 關鍵修正：加上 Number() 確保字串 "1" 也能被視為 1 (綠色)
       if (wire.fromPin && sourceComp.outputStates) {
-        isActive = sourceComp.outputStates[wire.fromPin] === 1;
+        isActive = Number(sourceComp.outputStates[wire.fromPin]) === 1;
       } else {
-        isActive = sourceComp.value === 1;
+        isActive = Number(sourceComp.value) === 1;
       }
 
     } else if (inputs.includes(wire.from)) {
@@ -177,8 +179,8 @@ const allInternalWires = computed(() => {
       startX = 30; 
       startY = 30 + (index * 60) + 30; 
       
-      // 這裡順便修正連線的發光狀態，讓它跟 Pin 同步
-      isActive = inputStates.value[wire.from] === 1; 
+      // 🛡️ 關鍵修正：加上 Number()
+      isActive = Number(inputStates.value[wire.from]) === 1; 
     } else { return; }
 
     const endComp = components.find(c => c.id === wire.to);
@@ -214,12 +216,12 @@ const allInternalWires = computed(() => {
     });
   });
 
+  // 處理連線到外部 Output Wall 的線路
   if (registry && registry.ioMapping && registry.ioMapping.outputs) {
     const containerSize = getCompSize(props.comp);
     const wallX = containerSize.w; 
     
     Object.keys(registry.ioMapping.outputs).forEach((outName, index) => {
-      // 1. 解析定義 (支援 String 或 Object)
       const target = registry.ioMapping.outputs[outName];
       let sourceId, sourcePin;
       
@@ -238,19 +240,15 @@ const allInternalWires = computed(() => {
         let startX = sourceComp.x + size.w;
         let startY = sourceComp.y + 40;
 
-        // 2. 如果來源元件展開，嘗試對齊特定的 Output Pin
         if (sourceComp.expanded) {
-           // 嘗試尋找 Pin 的位置
            const sourceOutputs = ChipRegistry[sourceComp.type]?.ioMapping?.outputs || {};
            const outKeys = Object.keys(sourceOutputs);
            const pinIndex = sourcePin ? outKeys.indexOf(sourcePin) : -1;
            
            if (pinIndex !== -1) {
-             // 對齊子元件右側的 Pin 面板
              startY = sourceComp.y + 25 + (pinIndex * 35);
-             startX += 70; // 延伸到 Pin 面板邊緣
+             startX += 70; 
            } else {
-             // 找不到 Pin 或沒指定，就從中心出發
              startY = sourceComp.y + (size.h / 2);
            }
         }
@@ -258,12 +256,12 @@ const allInternalWires = computed(() => {
         const endX = wallX; 
         const endY = 25 + (index * 35); 
 
-        // 3. 判斷線路是否發光
+        // 🛡️ 關鍵修正：加上 Number()
         let isActive = false;
         if (sourcePin && sourceComp.outputStates) {
-          isActive = sourceComp.outputStates[sourcePin] === 1;
+          isActive = Number(sourceComp.outputStates[sourcePin]) === 1;
         } else {
-          isActive = sourceComp.value === 1;
+          isActive = Number(sourceComp.value) === 1;
         }
 
         const cp1X = startX + 50;
@@ -305,10 +303,46 @@ const allInternalWires = computed(() => {
   cursor: grab;
   position: relative;
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  transition: width 0.3s ease, height 0.3s ease;
 }
 
-.expanded-header { background: #9c27b0; color: white; padding: 5px; font-weight: bold; display: flex; justify-content: space-between; cursor: grab; }
+.expanded-header { 
+  background: #2d2d2d; /* 改成深灰色，更有質感 */
+  color: #ddd; 
+  padding: 8px 12px; /* 增加一點內距 */
+  font-weight: bold; 
+  font-size: 13px;
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; /* 垂直置中 */
+  cursor: grab; 
+  border-bottom: 1px solid #444;
+  border-radius: 8px 8px 0 0; /* 上方圓角 */
+}
+
+/* 🍎 Mac 風格紅色關閉按鈕 */
+.close-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #ff5f56; /* Mac 紅 */
+  border: 1px solid #e0443e;
+  color: transparent; /* 隱藏文字 'x' */
+  cursor: pointer;
+  padding: 0;
+  margin-left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  transition: all 0.2s;
+}
+
+/* 滑鼠移過去時顯示 X 符號 (選擇性) */
+.close-btn:hover {
+  background-color: #ff5f56;
+  color: #330000; /* 深紅色 X */
+  content: 'x'; /* CSS 無法直接改文字內容，這裡主要靠 color 讓原本的 x 現形 */
+}
 .internal-canvas { position: relative; width: 100%; height: 100%; }
 .internal-wires-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
 
