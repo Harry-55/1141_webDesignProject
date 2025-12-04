@@ -64,24 +64,19 @@ import CircuitBlock from './components/CircuitBlock.vue';
 
 // --- HDL 相關 (維持不變) ---
 const hdlCode = ref(`
-INPUT reset 350 50
-INPUT load  400 50
-INPUT inc   450 50
+INPUT Op 50 50
+INPUT Instr0 100 50
+INPUT Instr1 150 50
+INPUT Instr2 200 50
+INPUT Instr3 250 50
 
-INPUT In0 50 200
-INPUT In1 50 250
-INPUT In2 50 300
-INPUT In3 50 350
+CPU_4_BIT cpu 300 150
 
-PC_4_BIT MyPC 400 200
-
-WIRE reset MyPC reset
-WIRE load  MyPC load
-WIRE inc   MyPC inc
-WIRE In0 MyPC In0
-WIRE In1 MyPC In1
-WIRE In2 MyPC In2
-WIRE In3 MyPC In3
+WIRE Op cpu Op
+WIRE Instr0 cpu Instr0
+WIRE Instr1 cpu Instr1
+WIRE Instr2 cpu Instr2
+WIRE Instr3 cpu Instr3
 `);
 
 function runAssembler() { assembleCode(hdlCode.value); }
