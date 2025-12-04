@@ -782,4 +782,70 @@ export const ChipRegistry = {
       }
     }
   },
+
+  // 🖥️ The Hack Computer (4-bit)
+  'COMPUTER_4_BIT': {
+    // 輸入：指令 (模擬 ROM), Reset
+    inputs: [
+      'Instr0','Instr1','Instr2','Instr3',
+      'Op', 'a', 
+      'c1','c2','c3','c4','c5','c6', 
+      'd1','d2','d3', 
+      'j1','j2','j3', 
+      'reset'
+    ],
+    // 輸出：為了觀察，我們把 PC 和 記憶體寫入狀態 拉出來看
+    outputs: ['PC0','PC1','PC2','PC3', 'WriteLight'],
+    
+    components: [
+      // 1. 核心 CPU
+      { id: 'cpu', type: 'CPU_4_BIT', x: 100, y: 100, value: 0 },
+      
+      // 2. 主記憶體 RAM (4x4)
+      { id: 'ram', type: 'RAM_4_4_BIT', x: 600, y: 100, value: 0 }
+    ],
+    
+    wires: [
+      // === 1. 指令流 (ROM -> CPU) ===
+      // 直接從外部輸入連到 CPU (由你扮演 ROM)
+      { from: 'Op', to: 'cpu', toPin: 'Op' },
+      { from: 'Instr0', to: 'cpu', toPin: 'Instr0' }, { from: 'Instr1', to: 'cpu', toPin: 'Instr1' }, { from: 'Instr2', to: 'cpu', toPin: 'Instr2' }, { from: 'Instr3', to: 'cpu', toPin: 'Instr3' },
+      { from: 'a', to: 'cpu', toPin: 'a' },
+      { from: 'c1', to: 'cpu', toPin: 'c1' }, { from: 'c2', to: 'cpu', toPin: 'c2' }, { from: 'c3', to: 'cpu', toPin: 'c3' }, { from: 'c4', to: 'cpu', toPin: 'c4' }, { from: 'c5', to: 'cpu', toPin: 'c5' }, { from: 'c6', to: 'cpu', toPin: 'c6' },
+      { from: 'd1', to: 'cpu', toPin: 'd1' }, { from: 'd2', to: 'cpu', toPin: 'd2' }, { from: 'd3', to: 'cpu', toPin: 'd3' },
+      { from: 'j1', to: 'cpu', toPin: 'j1' }, { from: 'j2', to: 'cpu', toPin: 'j2' }, { from: 'j3', to: 'cpu', toPin: 'j3' },
+      { from: 'reset', to: 'cpu', toPin: 'reset' },
+
+      // === 2. 數據流 (CPU -> RAM) ===
+      // CPU 告訴 RAM 要寫入什麼值 (outM -> In)
+      { from: 'cpu', fromPin: 'outM0', to: 'ram', toPin: 'In0' }, { from: 'cpu', fromPin: 'outM1', to: 'ram', toPin: 'In1' }, { from: 'cpu', fromPin: 'outM2', to: 'ram', toPin: 'In2' }, { from: 'cpu', fromPin: 'outM3', to: 'ram', toPin: 'In3' },
+      
+      // CPU 告訴 RAM 要寫入哪個地址 (addrM -> Addr)
+      // RAM 4 只需要 2 bits 地址，我們取 CPU 的低 2 位 (addr0, addr1)
+      { from: 'cpu', fromPin: 'addr0', to: 'ram', toPin: 'Addr0' },
+      { from: 'cpu', fromPin: 'addr1', to: 'ram', toPin: 'Addr1' },
+      
+      // CPU 告訴 RAM 是否要寫入 (writeM -> Load)
+      { from: 'cpu', fromPin: 'writeM', to: 'ram', toPin: 'Load' },
+
+      // === 3. 回授流 (RAM -> CPU) ===
+      // RAM 告訴 CPU 該地址現在的值 (Out -> inM)
+      { from: 'ram', fromPin: 'Out0', to: 'cpu', toPin: 'inM0' }, { from: 'ram', fromPin: 'Out1', to: 'cpu', toPin: 'inM1' }, { from: 'ram', fromPin: 'Out2', to: 'cpu', toPin: 'inM2' }, { from: 'ram', fromPin: 'Out3', to: 'cpu', toPin: 'inM3' }
+    ],
+    
+    ioMapping: {
+      inputs: {
+        'Op': [{id:'cpu',pin:'Op'}], 'reset': [{id:'cpu',pin:'reset'}],
+        'Instr0':[{id:'cpu',pin:'Instr0'}], 'Instr1':[{id:'cpu',pin:'Instr1'}], 'Instr2':[{id:'cpu',pin:'Instr2'}], 'Instr3':[{id:'cpu',pin:'Instr3'}],
+        'a':[{id:'cpu',pin:'a'}],
+        'c1':[{id:'cpu',pin:'c1'}], 'c2':[{id:'cpu',pin:'c2'}], 'c3':[{id:'cpu',pin:'c3'}], 'c4':[{id:'cpu',pin:'c4'}], 'c5':[{id:'cpu',pin:'c5'}], 'c6':[{id:'cpu',pin:'c6'}],
+        'd1':[{id:'cpu',pin:'d1'}], 'd2':[{id:'cpu',pin:'d2'}], 'd3':[{id:'cpu',pin:'d3'}],
+        'j1':[{id:'cpu',pin:'j1'}], 'j2':[{id:'cpu',pin:'j2'}], 'j3':[{id:'cpu',pin:'j3'}],
+      },
+      outputs: {
+        'PC0': {id:'cpu',pin:'pc0'}, 'PC1': {id:'cpu',pin:'pc1'}, 'PC2': {id:'cpu',pin:'pc2'}, 'PC3': {id:'cpu',pin:'pc3'},
+        'WriteLight': {id:'cpu',pin:'writeM'} // 讓我們知道現在是否正在寫入 RAM
+      }
+    }
+  },
 };
