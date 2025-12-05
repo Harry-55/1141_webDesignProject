@@ -223,7 +223,7 @@ const allInternalWires = computed(() => {
        let pinIndex = -1;
        if (wire.toPin) pinIndex = targetInputs.indexOf(wire.toPin);
        else if (targetInputs.length > 0) pinIndex = 0;
-       if (pinIndex !== -1) endY = endComp.y + 40 + (pinIndex * 30) + 15;
+       if (pinIndex !== -1) endY = endComp.y + 40 + (pinIndex * 30) + 55;
        else endY = endComp.y + 60;
     } else {
        const targetInputs = ChipRegistry[endComp.type]?.inputs || [];
