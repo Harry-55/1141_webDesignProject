@@ -62,6 +62,9 @@ import { ChipRegistry } from './registry';
 import ControlPanel from './components/ControlPanel.vue';
 import CircuitBlock from './components/CircuitBlock.vue';
 
+const PIN_HEIGHT = 30;
+const HEADER_HEIGHT = 40;
+const PIN_OFFSET_Y = 15;
 // --- HDL 相關 (維持不變) ---
 const hdlCode = ref(`
 INPUT reset 50 50
@@ -268,35 +271,87 @@ const selectionBoxStyle = computed(() => {
 });
 
 // --- 連線計算 (維持不變) ---
+const COLLAPSED_HEIGHT = 80; // 元件預設高度
+const PADDING_Y = 10;        // 上下保留的邊距，避免線條貼齊邊緣
+const DOT_OFFSET_X = -39;
+
 const wiresPaths = computed(() => {
   return systemState.wires.map(wire => {
     const startComp = systemState.components.find(c => c.id === wire.from);
     const endComp = systemState.components.find(c => c.id === wire.to);
     if (!startComp || !endComp) return { path: '', active: false };
 
-    const startW = startComp.expanded ? getCompSize(startComp).w : 100;
-    const startX = startComp.x + startW; 
+    // 1. 計算起點 (Start) - 保持上次修復的邏輯
+    const startSize = getCompSize(startComp);
+    let startX = startComp.x + startSize.w; 
     let startY = startComp.y + 40;
 
-    const endX = endComp.x;
-    let endY = endComp.y + 40; 
-
-    if (endComp.expanded) {
-      const inputs = ChipRegistry[endComp.type]?.inputs || [];
-      const pinIndex = inputs.indexOf(wire.from); 
-      if (pinIndex !== -1) endY = endComp.y + 65 + (pinIndex * 60);
-      else endY = endComp.y + 65;
-    } else {
-      const inputs = ChipRegistry[endComp.type]?.inputs || [];
-      const pinIndex = inputs.indexOf(wire.from);
-      if (pinIndex === 0) endY = endComp.y + 20;
-      else if (pinIndex > 0) endY = endComp.y + 60;
+    if (startComp.expanded) {
+      if (wire.fromPin) {
+         const outputs = ChipRegistry[startComp.type]?.ioMapping?.outputs || {};
+         const outKeys = Object.keys(outputs);
+         const outIndex = outKeys.indexOf(wire.fromPin);
+         
+         if (outIndex !== -1) {
+            // Y 軸維持不變
+            startY = startComp.y + 40 + (outIndex * 35) + 17; 
+            
+            // 🟢 修正 X 軸：使用新的負值偏移量
+            startX += DOT_OFFSET_X; 
+         }
+      } else {
+        startY = startComp.y + (startSize.h / 2);
+      }
     }
 
-    let isActive = false;
-    if (wire.fromPin && startComp.outputStates) isActive = startComp.outputStates[wire.fromPin] === 1;
-    else isActive = startComp.value === 1;
+    // ==========================================
+    // 🟢 2. 計算終點 (End) - 針對「未展開」做比例壓縮修正
+    // ==========================================
+    const endX = endComp.x;
+    let endY; 
 
+    if (endComp.expanded) {
+      // --- 展開狀態 (維持精準對齊) ---
+      const inputs = ChipRegistry[endComp.type]?.inputs || [];
+      let pinIndex = -1;
+      if (wire.toPin) pinIndex = inputs.indexOf(wire.toPin);
+      else if (inputs.length > 0) pinIndex = 0;
+
+      if (pinIndex !== -1) {
+        endY = endComp.y + HEADER_HEIGHT + (pinIndex * PIN_HEIGHT) + PIN_OFFSET_Y + 40;
+      } else {
+        endY = endComp.y + HEADER_HEIGHT + 20;
+      }
+    } else {
+      // --- 🟢 縮小狀態 (關鍵修正：比例分配) ---
+      const inputs = ChipRegistry[endComp.type]?.inputs || [];
+      let pinIndex = inputs.indexOf(wire.toPin);
+      
+      // 如果找不到腳位，預設視為第 0 個
+      if (pinIndex === -1) pinIndex = 0;
+
+      // 計算可用高度區間 (80px - 上下邊距)
+      const availableHeight = COLLAPSED_HEIGHT - (PADDING_Y * 2);
+      
+      // 計算每條線的間距 (Step)
+      // 如果只有 1 個輸入，就在中間；如果有多個，均分高度
+      const totalPins = inputs.length;
+      const step = totalPins > 1 ? availableHeight / (totalPins - 1) : 0;
+
+      if (totalPins <= 1) {
+        endY = endComp.y + (COLLAPSED_HEIGHT / 2); // 只有一個輸入時居中
+      } else {
+        // 公式：元件頂部 + 上邊距 + (第幾個 * 間距)
+        endY = endComp.y + PADDING_Y + (pinIndex * step);
+      }
+    }
+
+    // 3. 判斷線路顏色 (維持不變)
+    let isActive = false;
+    if (wire.fromPin && startComp.outputStates) isActive = Number(startComp.outputStates[wire.fromPin]) === 1;
+    else isActive = Number(startComp.value) === 1;
+
+    // 4. 繪製曲線
     const cp1X = startX + 80;
     const cp2X = endX - 80;
     return { 
@@ -308,7 +363,10 @@ const wiresPaths = computed(() => {
 
 function getCompSize(c) {
   if (!c.expanded) return { w: 100, h: 80 };
-  let maxW = 300; let maxH = 200;
+  
+  let maxW = 300; 
+  let maxH = 200;
+
   if (c.internals && c.internals.components) {
     c.internals.components.forEach(sub => {
       const subSize = getCompSize(sub);
@@ -318,6 +376,12 @@ function getCompSize(c) {
       if (bottom > maxH) maxH = bottom;
     });
   }
+  
+  // 加上輸入孔的高度計算
+  const inputs = ChipRegistry[c.type]?.inputs || [];
+  const minHeightForInputs = HEADER_HEIGHT + (inputs.length * PIN_HEIGHT) + 20;
+  if (minHeightForInputs > maxH) maxH = minHeightForInputs;
+
   return { w: maxW + 100, h: maxH + 50 };
 }
 </script>
