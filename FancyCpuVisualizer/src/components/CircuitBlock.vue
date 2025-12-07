@@ -1,8 +1,8 @@
 <template>
   <div 
     class="component-wrapper" 
-    :style="{ left: comp.x + 'px', top: comp.y + 'px', zIndex: isActive ? 999 : 10 }"
-    @mousedown.stop="handleMouseDown"
+    :style="{ left: comp.x + 'px', top: comp.y + 'px', zIndex: currentZIndex }"
+    @mousedown.stop="bringToFront"
   >
    <div 
       v-if="!comp.expanded"
@@ -13,11 +13,11 @@
         'is-input': comp.type === 'INPUT',
         'selected': isSelected
       }"
-      @mousedown.stop="$emit('startDrag', $event, comp)"
+      @mousedown.stop="handleStartDrag"
     >
       <div class="header">{{ comp.type }}</div>
       <div class="body">{{ comp.id }}</div>
-      <button v-if="comp.internals" class="expand-btn" @mousedown.stop @click="comp.expanded = true">+</button>
+      <button v-if="comp.internals" class="expand-btn" @mousedown.stop @click="handleExpand">+</button>
       
       <div v-if="comp.outputStates" class="mini-pin-row">
         <div v-for="(val, name) in comp.outputStates" :key="name" 
@@ -31,7 +31,7 @@
       :style="dynamicStyle"
       :class="{ 'selected': isSelected }"
     >
-      <div class="expanded-header" @mousedown.stop="$emit('startDrag', $event, comp)">
+      <div class="expanded-header" @mousedown.stop="handleStartDrag">
         <span>{{ comp.type }} ({{ comp.id }})</span>
         <button class="close-btn" @mousedown.stop @click="comp.expanded = false">x</button>
       </div>
@@ -73,6 +73,15 @@
   </div>
 </template>
 
+<script>
+// 🟢 全域 Z-Index 計數器
+let globalTopZIndex = 100;
+
+export default {
+  name: 'CircuitBlock'
+}
+</script>
+
 <script setup>
 import { ref, computed, reactive } from 'vue';
 import { ChipRegistry } from '../registry';
@@ -93,16 +102,30 @@ const emit = defineEmits(['startDrag']);
 
 // === 狀態管理 ===
 const isActive = ref(false);
-const internalSelectedIds = ref(new Set()); // 內部選取的元件 ID
+const internalSelectedIds = ref(new Set()); 
 const isInternalBoxSelecting = ref(false);
 const internalSelectionStart = reactive({ x: 0, y: 0 });
 const internalSelectionBox = ref(null);
 
-let globalZIndex = 10;
+// 🟢 本地 Z-Index 狀態
+const currentZIndex = ref(globalTopZIndex);
 
-function handleMouseDown(e) {
-  globalZIndex++;
-  e.currentTarget.style.zIndex = globalZIndex;
+// 🟢 置頂函式
+function bringToFront() {
+  globalTopZIndex++;
+  currentZIndex.value = globalTopZIndex;
+}
+
+// 🟢 新增：展開並置頂
+function handleExpand() {
+  bringToFront(); // 先把層級拉到最高
+  props.comp.expanded = true; // 再展開
+}
+
+// 🟢 統一的拖曳處理
+function handleStartDrag(event) {
+  bringToFront(); 
+  emit('startDrag', event, props.comp);
 }
 
 // === 元件大小計算 ===
@@ -133,13 +156,14 @@ const dynamicStyle = computed(() => {
   return { width: size.w + 'px', height: size.h + 'px' };
 });
 
-// === 🟢 內部拖曳邏輯 (Internal Drag) ===
+// === 內部拖曳邏輯 ===
 let draggingSubComp = null;
 let lastInternalMouseX = 0;
 let lastInternalMouseY = 0;
 
 function handleInternalDrag(event, subComp) {
   event.stopPropagation(); 
+  bringToFront();
 
   // 處理選取狀態
   if (event.ctrlKey) {
@@ -175,7 +199,6 @@ function onInternalMouseMove(event) {
     const moveX = deltaX / currentScale;
     const moveY = deltaY / currentScale;
 
-    // 移動所有被選取的內部元件
     internalSelectedIds.value.forEach(id => {
         const c = props.comp.internals.components.find(x => x.id === id);
         if (c) {
@@ -192,16 +215,16 @@ function onInternalMouseUp() {
   window.removeEventListener('mouseup', onInternalMouseUp);
 }
 
-// === 🟢 內部框選邏輯 (Internal Box Selection) ===
+// === 內部框選邏輯 ===
 let boxSelectEl = null;
 
 function handleCanvasMouseDown(event) {
     event.stopPropagation();
+    bringToFront();
     
-    // 如果是按住 Ctrl 點擊空白處 -> 開始框選
     if (event.ctrlKey) {
         isInternalBoxSelecting.value = true;
-        boxSelectEl = event.currentTarget; // .internal-canvas
+        boxSelectEl = event.currentTarget; 
         
         const rect = boxSelectEl.getBoundingClientRect();
         const scale = rect.width / boxSelectEl.offsetWidth;
@@ -216,7 +239,6 @@ function handleCanvasMouseDown(event) {
         window.addEventListener('mousemove', onBoxSelectMouseMove);
         window.addEventListener('mouseup', onBoxSelectMouseUp);
     } else {
-        // 沒按 Ctrl 點擊空白處 -> 清除選取
         internalSelectedIds.value.clear();
     }
 }
@@ -242,14 +264,12 @@ function onBoxSelectMouseMove(event) {
 }
 
 function onBoxSelectMouseUp() {
-    // 計算選取到的元件
     if (internalSelectionBox.value) {
         const box = internalSelectionBox.value;
         const subComps = props.comp.internals?.components || [];
         
         subComps.forEach(sub => {
             const size = getCompSize(sub);
-            // AABB 碰撞檢測
             if (sub.x < box.x + box.w &&
                 sub.x + size.w > box.x &&
                 sub.y < box.y + box.h &&
@@ -276,7 +296,7 @@ const internalSelectionStyle = computed(() => {
     };
 });
 
-// === Wires & Pins (連線計算) ===
+// === Wires & Pins ===
 const inputPins = computed(() => ChipRegistry[props.comp.type]?.inputs || []);
 const inputStates = computed(() => props.comp.inputStates || {});
 
@@ -292,7 +312,6 @@ const allInternalWires = computed(() => {
     let startX, startY, isActive = false;
     const sourceComp = components.find(c => c.id === wire.from);
 
-    // 起點
     if (sourceComp) {
        const size = getCompSize(sourceComp);
        startX = sourceComp.x + size.w;
@@ -319,10 +338,9 @@ const allInternalWires = computed(() => {
        isActive = Number(inputStates.value[wire.from]) === 1; 
     } else { return; }
 
-    // 終點
     const endComp = components.find(c => c.id === wire.to);
     if (!endComp) return;
-    const endX = endComp.x;
+    const endX = endComp.x ;
     let endY;
     if (endComp.expanded) {
        const targetInputs = ChipRegistry[endComp.type]?.inputs || [];
@@ -347,7 +365,6 @@ const allInternalWires = computed(() => {
     renderedWires.push({ path: `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp2X} ${endY}, ${endX} ${endY}`, active: isActive });
   });
 
-  // Output Wall
   if (registry && registry.ioMapping && registry.ioMapping.outputs) {
     const containerSize = getCompSize(props.comp);
     const wallX = containerSize.w; 

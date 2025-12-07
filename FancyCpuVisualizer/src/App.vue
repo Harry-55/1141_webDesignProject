@@ -345,14 +345,14 @@ const wiresPaths = computed(() => {
     let endY = endComp.y + 40; 
 
     if (endComp.expanded) {
-      endX += INPUT_DOT_X; 
+      // endX += INPUT_DOT_X; 
       const inputs = ChipRegistry[endComp.type]?.inputs || [];
       let pinIndex = -1;
       if (wire.toPin) pinIndex = inputs.indexOf(wire.toPin);
       else if (inputs.length > 0) pinIndex = 0;
 
       if (pinIndex !== -1) {
-        endY = endComp.y + HEADER_HEIGHT + (pinIndex * PIN_HEIGHT) + PIN_OFFSET_Y;
+        endY = endComp.y + HEADER_HEIGHT + (pinIndex * PIN_HEIGHT) + PIN_OFFSET_Y + 45;
       } else {
         endY = endComp.y + HEADER_HEIGHT + 20;
       }
@@ -485,8 +485,8 @@ button, input, select, textarea { font-family: inherit; }
 .wire-path.active { stroke: #0f0; filter: drop-shadow(0 0 3px #0f0); }
 .wire-hit-area { pointer-events: stroke; cursor: crosshair; }
 .wire-hit-area:hover { stroke: rgba(255, 255, 255, 0.1); }
-.waypoint-handle { cursor: grab; pointer-events: all; transition: all 0.1s ease-out; transform-origin: center; transform-box: fill-box; }
-.waypoint-handle:hover { fill: #ffbd2e; stroke: #fff; stroke-width: 2px; transform: scale(1.5); }
-.waypoint-handle:active { cursor: grabbing; transform: scale(1.5); }
+.waypoint-handle { cursor: grab; pointer-events: all; transform-origin: center; transform-box: fill-box; fill:#ffbd2e;}
+.waypoint-handle:hover { fill: #ffbd2e; stroke: #fff; stroke-width: 2px; transform: scale(1.2); }
+.waypoint-handle:active { cursor: grabbing; transform: scale(1.2); }
 .helper-text { position: absolute; bottom: 10px; right: 10px; color: #666; font-size: 12px; pointer-events: none; }
 </style>
