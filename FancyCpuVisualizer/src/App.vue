@@ -1,10 +1,19 @@
 <template>
   <div class="main-layout">
     <div class="workspace">
-      <div class="editor-panel">
-        <h3>Vue-HDL Editor</h3>
-        <textarea v-model="hdlCode"></textarea>
-        <button @click="runAssembler">Compile & Load</button>
+      <div class="editor-panel" v-show="isEditorOpen">
+        <div class="panel-top-bar">
+          <h3>HDL EDITOR</h3>
+          <button class="icon-btn close-panel-btn" @click="isEditorOpen = false" title="Close Panel">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+        </div>
+        
+        <textarea v-model="hdlCode" spellcheck="false"></textarea>
+        
+        <div class="panel-bottom-bar">
+          <button class="action-btn" @click="runAssembler">Compile & Load</button>
+        </div>
       </div>
 
       <div 
@@ -18,6 +27,15 @@
         @keydown="handleKeyDown"
         :style="{ cursor: isPanning ? 'grabbing' : 'default' }"
       >
+        <button 
+          v-if="!isEditorOpen" 
+          class="floating-panel-btn"
+          @click="isEditorOpen = true"
+          title="Open Editor"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+        </button>
+
         <h3>Renderer View (Zoom: {{ Math.round(zoom * 100) }}%)</h3>
         
         <div 
@@ -26,33 +44,9 @@
         >
           <svg class="wires-layer">
             <g v-for="(wire, i) in wiresPaths" :key="i">
-              <path 
-                :d="wire.path" 
-                class="wire-path"
-                :class="{ 'active': wire.active }"
-                stroke-width="3" 
-                fill="transparent"
-              />
-              
-              <path 
-                :d="wire.path" 
-                stroke="transparent" 
-                stroke-width="15" 
-                fill="none" 
-                class="wire-hit-area"
-                @dblclick.stop="addWaypoint($event, wire.sourceWire)"
-              />
-
-              <circle 
-                v-for="(wp, idx) in wire.waypoints" 
-                :key="idx"
-                :cx="wp.x" 
-                :cy="wp.y" 
-                r="6" 
-                class="waypoint-handle"
-                @mousedown.stop="startDragWaypoint($event, wire.sourceWire, idx)"
-                @dblclick.stop="removeWaypoint(wire.sourceWire, idx)"
-              />
+              <path :d="wire.path" class="wire-path" :class="{ 'active': wire.active }" stroke-width="3" fill="transparent" />
+              <path :d="wire.path" stroke="transparent" stroke-width="15" fill="none" class="wire-hit-area" @dblclick.stop="addWaypoint($event, wire.sourceWire)" />
+              <circle v-for="(wp, idx) in wire.waypoints" :key="idx" :cx="wp.x" :cy="wp.y" r="6" class="waypoint-handle" @mousedown.stop="startDragWaypoint($event, wire.sourceWire, idx)" @dblclick.stop="removeWaypoint(wire.sourceWire, idx)" />
             </g>
           </svg>
 
@@ -68,7 +62,7 @@
         </div>
         
         <div class="helper-text">
-          Ctrl+Drag Select • Scroll Zoom • 🟢 DblClick Wire to Add Point • Drag Points to Adjust
+          Ctrl+Drag Select • Scroll Zoom • DblClick Wire to Add Point • Drag Points to Adjust
         </div>
       </div>
     </div> <ControlPanel />
@@ -88,6 +82,9 @@ const HEADER_HEIGHT = 40;
 const PIN_OFFSET_Y = 15;
 const INPUT_DOT_X = 30;
 const DOT_OFFSET_X = -39;
+
+// 🟢 UI 狀態：編輯器開關
+const isEditorOpen = ref(true);
 
 // --- HDL 相關 ---
 const hdlCode = ref(`
@@ -150,9 +147,7 @@ const selectionStart = { x: 0, y: 0 };
 const selectionBox = ref(null);
 const lastMousePos = { x: 0, y: 0 };
 let isDraggingComp = false;
-
-// 🟢 貝茲曲線控制點拖曳狀態
-let draggingWaypoint = null; // { wire, index }
+let draggingWaypoint = null;
 
 function getRelativeMousePos(event) {
   const panel = document.querySelector('.canvas-panel');
@@ -164,7 +159,6 @@ function getRelativeMousePos(event) {
   };
 }
 
-// 🟢 取得滑鼠在 World (畫布世界) 中的座標
 function getWorldMousePos(event) {
   const rel = getRelativeMousePos(event);
   return {
@@ -175,8 +169,9 @@ function getWorldMousePos(event) {
 
 function handleMouseDown(event) {
   if (event.target.closest('.component-wrapper')) return;
-  // 如果是點擊控制點，也不要觸發畫布拖曳
   if (event.target.closest('.waypoint-handle')) return;
+  // 🟢 防止點擊懸浮按鈕時觸發畫布拖曳
+  if (event.target.closest('.floating-panel-btn')) return;
 
   lastMousePos.x = event.clientX;
   lastMousePos.y = event.clientY;
@@ -209,17 +204,9 @@ function startDrag(event, comp) {
   }
 }
 
-// 🟢 貝茲曲線互動：新增控制點
 function addWaypoint(event, wire) {
   if (!wire.waypoints) wire.waypoints = [];
   const worldPos = getWorldMousePos(event);
-  
-  // 簡單的演算法：將新點加入到陣列最後
-  // 進階優化：可以計算點擊位置在線段的哪個部分，插入到正確的 index，這裡暫時簡化
-  // 為了讓體驗好一點，我們簡單判斷一下插入位置 (根據 X 軸排序)
-  // wire.waypoints.push({ x: worldPos.x, y: worldPos.y });
-  
-  // 簡單排序插入：假設線條大致是從左到右
   let insertIdx = wire.waypoints.length;
   for(let i=0; i<wire.waypoints.length; i++) {
       if (worldPos.x < wire.waypoints[i].x) {
@@ -230,12 +217,10 @@ function addWaypoint(event, wire) {
   wire.waypoints.splice(insertIdx, 0, { x: worldPos.x, y: worldPos.y });
 }
 
-// 🟢 貝茲曲線互動：移除控制點
 function removeWaypoint(wire, index) {
   wire.waypoints.splice(index, 1);
 }
 
-// 🟢 貝茲曲線互動：開始拖曳控制點
 function startDragWaypoint(event, wire, index) {
   draggingWaypoint = { wire, index };
   lastMousePos.x = event.clientX;
@@ -249,7 +234,6 @@ function handleMouseMove(event) {
   lastMousePos.y = event.clientY;
 
   if (draggingWaypoint) {
-    // 🟢 拖曳控制點
     const moveX = deltaX / zoom.value;
     const moveY = deltaY / zoom.value;
     const wp = draggingWaypoint.wire.waypoints[draggingWaypoint.index];
@@ -297,7 +281,7 @@ function handleMouseUp() {
   isDraggingComp = false;
   isBoxSelecting.value = false;
   selectionBox.value = null;
-  draggingWaypoint = null; // 🟢 結束拖曳控制點
+  draggingWaypoint = null;
 }
 
 function handleWheel(event) {
@@ -312,12 +296,7 @@ function handleWheel(event) {
   zoom.value = newZoom;
 }
 
-function handleKeyDown(event) {
-    // 簡單的刪除功能
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-        // 如果有需要，可以實作刪除選取的元件
-    }
-}
+function handleKeyDown(event) {}
 
 const selectionBoxStyle = computed(() => {
   if (!selectionBox.value) return {};
@@ -329,11 +308,10 @@ const selectionBoxStyle = computed(() => {
   };
 });
 
-// --- 🟢 連線計算 (支援多段貝茲曲線) ---
-// 輔助：生成一段貝茲曲線
+// --- 連線計算 ---
 function getSegmentPath(x1, y1, x2, y2) {
     const dist = Math.abs(x2 - x1);
-    const cpOffset = Math.max(dist * 0.5, 50); // 動態調整控制點距離
+    const cpOffset = Math.max(dist * 0.5, 50);
     const cp1X = x1 + cpOffset;
     const cp2X = x2 - cpOffset;
     return `C ${cp1X} ${y1}, ${cp2X} ${y2}, ${x2} ${y2}`;
@@ -345,7 +323,6 @@ const wiresPaths = computed(() => {
     const endComp = systemState.components.find(c => c.id === wire.to);
     if (!startComp || !endComp) return { path: '', active: false, waypoints: [], sourceWire: wire };
 
-    // --- 1. 計算起點 ---
     const startSize = getCompSize(startComp);
     let startX = startComp.x + startSize.w; 
     let startY = startComp.y + 40;
@@ -364,12 +341,11 @@ const wiresPaths = computed(() => {
       }
     }
 
-    // --- 2. 計算終點 ---
     let endX = endComp.x;
     let endY = endComp.y + 40; 
 
     if (endComp.expanded) {
-      endX += INPUT_DOT_X; // 深入內部
+      endX += INPUT_DOT_X; 
       const inputs = ChipRegistry[endComp.type]?.inputs || [];
       let pinIndex = -1;
       if (wire.toPin) pinIndex = inputs.indexOf(wire.toPin);
@@ -395,26 +371,18 @@ const wiresPaths = computed(() => {
       }
     }
 
-    // --- 3. 🟢 生成多段路徑 ---
-    // 如果 wire.waypoints 不存在，初始化為空
     const waypoints = wire.waypoints || [];
-    
     let d = `M ${startX} ${startY}`;
-    
     let currX = startX;
     let currY = startY;
 
-    // 串接每一個控制點
     waypoints.forEach(wp => {
         d += ` ${getSegmentPath(currX, currY, wp.x, wp.y)}`;
         currX = wp.x;
         currY = wp.y;
     });
-
-    // 最後連到終點
     d += ` ${getSegmentPath(currX, currY, endX, endY)}`;
 
-    // --- 4. 狀態 ---
     let isActive = false;
     if (wire.fromPin && startComp.outputStates) isActive = Number(startComp.outputStates[wire.fromPin]) === 1;
     else isActive = Number(startComp.value) === 1;
@@ -423,7 +391,7 @@ const wiresPaths = computed(() => {
       path: d,
       active: isActive,
       waypoints: waypoints,
-      sourceWire: wire // 傳遞原始參照以便修改
+      sourceWire: wire
     };
   });
 });
@@ -456,73 +424,69 @@ button, input, select, textarea { font-family: inherit; }
 </style>
 <style scoped>
 .main-layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.workspace { display: flex; flex-grow: 1; overflow: hidden; }
+.workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; }
+
+/* 🟢 Editor Panel Style */
 .editor-panel { 
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  width: 250px; padding: 15px; 
+  width: 250px; 
   background: #1e1e1e; border-right: 1px solid #333;
-  display: flex; flex-direction: column; z-index: 10; 
+  display: flex; flex-direction: column; z-index: 20; 
   box-shadow: 2px 0 10px rgba(0,0,0,0.3); 
+  flex-shrink: 0; /* 防止被擠壓 */
 }
-.editor-panel h3 { color: #ddd; margin-top: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+
+.panel-top-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; background: #252526; border-bottom: 1px solid #333;
+}
+.panel-top-bar h3 { color: #ccc; margin: 0; font-size: 12px; letter-spacing: 1px; }
+
+.icon-btn {
+  background: transparent; border: none; color: #888; cursor: pointer;
+  padding: 4px; border-radius: 4px; display: flex; align-items: center;
+  transition: all 0.2s;
+}
+.icon-btn:hover { background: #333; color: #fff; }
+
 .editor-panel textarea {
-  flex-grow: 1; background: #252526; color: #d4d4d4;
-  border: 1px solid #3e3e42; border-radius: 4px; padding: 10px;
-  font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; resize: none; outline: none; margin-bottom: 10px;
+  flex-grow: 1; background: #1e1e1e; color: #d4d4d4;
+  border: none; padding: 10px;
+  font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; resize: none; outline: none;
 }
-.editor-panel textarea:focus { border-color: #007fd4; }
-.editor-panel button {
-  background: #007fd4; color: white; border: none; padding: 10px;
+.editor-panel textarea:focus { background: #222; }
+
+.panel-bottom-bar { padding: 10px; border-top: 1px solid #333; background: #252526; }
+.action-btn {
+  width: 100%; background: #007fd4; color: white; border: none; padding: 8px;
   border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;
 }
-.editor-panel button:hover { background: #0060a0; }
+.action-btn:hover { background: #0060a0; }
 
+/* 🟢 Canvas Panel & Floating Button */
 .canvas-panel { 
   flex-grow: 1; position: relative; background: #121212; overflow: hidden; color: #fff; user-select: none; outline: none;
 }
-.selection-box {
-  position: absolute; border: 1px solid #00a8ff;
-  background-color: rgba(0, 168, 255, 0.2); pointer-events: none; z-index: 9999;
+
+.floating-panel-btn {
+  position: absolute; top: 50px; left: 10px; z-index: 100;
+  background: rgba(30, 30, 30, 0.8); color: #ccc;
+  border: 1px solid #444; border-radius: 6px;
+  padding: 6px; cursor: pointer; backdrop-filter: blur(4px);
+  transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
+.floating-panel-btn:hover { background: #333; color: #fff; border-color: #666; transform: translateY(1px); }
+
+/* 其他樣式維持不變 */
+.selection-box { position: absolute; border: 1px solid #00a8ff; background-color: rgba(0, 168, 255, 0.2); pointer-events: none; z-index: 9999; }
 .viewport { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; }
 .wires-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
-
 .wire-path { stroke: #666; transition: stroke 0.2s; pointer-events: none; }
 .wire-path.active { stroke: #0f0; filter: drop-shadow(0 0 3px #0f0); }
-
-/* 🟢 線條互動熱區 */
-.wire-hit-area { 
-  pointer-events: stroke; /* 只有線條本身可點擊 */
-  cursor: crosshair;
-}
-.wire-hit-area:hover {
-  stroke: rgba(255, 255, 255, 0.1); /* hover 時顯示淡淡的光暈 */
-}
-
-/* 🟢 控制點樣式 */
-.waypoint-handle {
-  cursor: grab;
-  pointer-events: all;
-  /* transition: all 0.1s ease-out; 加一點過渡動畫更滑順 */
-  fill:#007fd4;
-  /* 關鍵修正：設定變形原點為「自身中心」 */
-  transform-origin: center;
-  transform-box: fill-box; 
-}
-
-.waypoint-handle:hover {
-  fill: #ffbd2e; /* Mac 黃 */
-  stroke: #fff;
-  stroke-width: 2px; /* 加粗邊框 */
-  
-  /* 🟢 安全的放大方式 */
-  transform: scale(1.2); 
-}
-
-.waypoint-handle:active {
-  cursor: grabbing;
-  transform: scale(1.2); /* 拖曳時保持放大 */
-}
-
+.wire-hit-area { pointer-events: stroke; cursor: crosshair; }
+.wire-hit-area:hover { stroke: rgba(255, 255, 255, 0.1); }
+.waypoint-handle { cursor: grab; pointer-events: all; transition: all 0.1s ease-out; transform-origin: center; transform-box: fill-box; }
+.waypoint-handle:hover { fill: #ffbd2e; stroke: #fff; stroke-width: 2px; transform: scale(1.5); }
+.waypoint-handle:active { cursor: grabbing; transform: scale(1.5); }
 .helper-text { position: absolute; bottom: 10px; right: 10px; color: #666; font-size: 12px; pointer-events: none; }
 </style>
