@@ -15,15 +15,70 @@
           <button class="action-btn" @click="runAssembler">Compile & Load</button>
           
           <div class="file-actions">
-            <button class="secondary-btn" @click="saveProject">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              Store
+            <button class="secondary-btn" @click="saveProject" title="Download JSON">
+              💾 Local Store
             </button>
-            <button class="secondary-btn" @click="triggerLoad">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              Load
+            
+            <button class="secondary-btn" @click="triggerLoad" title="Open JSON File">
+              📂 Local Load
             </button>
+            
+            <button class="secondary-btn" @click="openCloudModal('save')" v-if="user">
+              ☁️ Save Cloud
+            </button>
+
+            <button class="secondary-btn" @click="openCloudModal('load')">
+              🌐 Workshop
+            </button>
+
             <input type="file" ref="fileInput" class="hidden-input" accept=".json" @change="handleFileLoad">
+          </div>
+          
+          <div class="auth-section" style="margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">
+            <div v-if="user" class="user-info">
+              <img :src="user.photoURL" class="avatar" v-if="user.photoURL">
+              <span>{{ user.displayName }}</span>
+              <button @click="logout" class="text-btn">Logout</button>
+            </div>
+            <button v-else @click="login" class="action-btn google-btn">Sign in with Google</button>
+          </div>
+        </div>
+
+        <div v-if="showCloudModal" class="modal-overlay" @click.self="showCloudModal = false">
+          <div class="modal-content">
+            <h3>{{ cloudMode === 'save' ? 'Save to Cloud' : 'Project Workshop' }}</h3>
+            
+            <div v-if="cloudMode === 'save'">
+              <input v-model="newProjectTitle" placeholder="Project Title" class="modal-input">
+              <textarea v-model="newProjectDesc" placeholder="Description" class="modal-input"></textarea>
+              <label>
+                <input type="checkbox" v-model="newProjectPublic"> Share to Workshop (Public)
+              </label>
+              <button @click="handleCloudSave" class="action-btn">Upload</button>
+            </div>
+
+            <div v-else>
+              <div class="tabs">
+                <button @click="currentTab='public'; fetchPublicProjects()" :class="{active: currentTab==='public'}">Public Gallery</button>
+                <button @click="currentTab='mine'; fetchMyProjects()" :class="{active: currentTab==='mine'}" v-if="user">My Projects</button>
+              </div>
+              
+              <div class="project-list" v-if="!isLoading">
+                <div v-for="p in (currentTab==='public' ? publicProjects : myProjects)" :key="p.id" class="project-item">
+                  <div class="p-info">
+                    <strong>{{ p.title }}</strong>
+                    <span class="author">by {{ p.authorName }}</span>
+                  </div>
+                  <div class="p-actions">
+                    <button @click="loadCloudProject(p)">Load</button>
+                    <button v-if="currentTab==='mine'" @click="deleteProject(p.id)" class="del-btn">Del</button>
+                  </div>
+                </div>
+              </div>
+              <div v-else>Loading...</div>
+            </div>
+            
+            <button class="close-modal-btn" @click="showCloudModal = false">x</button>
           </div>
         </div>
       </div>
@@ -80,6 +135,10 @@ import { ChipRegistry } from './registry';
 import ControlPanel from './components/ControlPanel.vue';
 import CircuitBlock from './components/CircuitBlock.vue';
 
+import { onMounted } from 'vue';
+import { auth, login, logout } from './firebase'; // 引入 firebase
+import { onAuthStateChanged } from 'firebase/auth';
+import { useCloud } from './useCloud'; // 引入剛剛寫的 composable
 // --- 常數 ---
 const PIN_HEIGHT = 30;
 const HEADER_HEIGHT = 40;
@@ -631,6 +690,67 @@ function getCompSize(c) {
   maxH = Math.max(maxH, inputsHeight, outputsHeight);
   return { w: maxW + 100, h: maxH + 50 };
 }
+
+// --- Firebase Auth ---
+const user = ref(null);
+onMounted(() => {
+  onAuthStateChanged(auth, (u) => {
+    user.value = u;
+  });
+});
+
+// --- Cloud Logic ---
+const showCloudModal = ref(false);
+const cloudMode = ref('load'); // 'save' or 'load'
+const currentTab = ref('public');
+const newProjectTitle = ref('');
+const newProjectDesc = ref('');
+const newProjectPublic = ref(true);
+
+const { 
+  publicProjects, myProjects, isLoading, 
+  saveToCloud, fetchPublicProjects, fetchMyProjects, deleteProject 
+} = useCloud();
+
+function openCloudModal(mode) {
+  cloudMode.value = mode;
+  showCloudModal.value = true;
+  if (mode === 'load') {
+    fetchPublicProjects(); // 預設載入公開區
+  }
+}
+
+function handleCloudSave() {
+  if (!newProjectTitle.value) return alert("Please enter a title");
+  
+  // 1. 取得目前專案資料 (這段邏輯從原本的 saveProject 提取出來)
+  const projectData = {
+    meta: { version: '1.1', timestamp: new Date().toISOString() },
+    hdlCode: hdlCode.value,
+    view: { pan: { ...pan }, zoom: zoom.value },
+    components: systemState.components.map(getComponentState), // 使用你原本寫好的 helper
+    wires: systemState.wires
+      .filter(w => w.waypoints && w.waypoints.length > 0)
+      .map(w => ({
+        from: w.from, to: w.to, fromPin: w.fromPin, toPin: w.toPin,
+        waypoints: [...w.waypoints]
+      }))
+  };
+
+  // 2. 上傳
+  saveToCloud(projectData, newProjectTitle.value, newProjectDesc.value, newProjectPublic.value)
+    .then(() => {
+      showCloudModal.value = false;
+      newProjectTitle.value = ''; // reset
+    });
+}
+
+function loadCloudProject(project) {
+  if (confirm("Loading this project will overwrite current workspace. Continue?")) {
+    restoreProject(project.content); // 使用你原本寫好的 restoreProject
+    showCloudModal.value = false;
+  }
+}
 </script>
 
 <style>
@@ -672,7 +792,7 @@ button, input, select, textarea { font-family: inherit; }
 
 .panel-bottom-bar { 
   padding: 10px; border-top: 1px solid #333; background: #252526; 
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;
 }
 .action-btn {
   width: 100%; background: #007fd4; color: white; border: none; padding: 8px;
@@ -681,12 +801,33 @@ button, input, select, textarea { font-family: inherit; }
 .action-btn:hover { background: #0060a0; }
 
 .file-actions {
-  display: flex; gap: 8px;
+  display: flex;
+  flex-direction: column; /* 🟢 改為垂直排列，這是解決溢出的關鍵 */
+  gap: 8px;
+  width: 100%;
 }
+
 .secondary-btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-  background: #333; color: #ccc; border: 1px solid #444; padding: 6px;
-  border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;
+  /* 尺寸設定 */
+  flex: 0 0 auto;
+  width: 100%;
+  height: 36px;
+  
+  /* Flexbox 排版 (關鍵在這一區) */
+  display: flex; 
+  align-items: center;      /* 垂直置中 */
+  justify-content: center;  /* 🟢 水平置中 (這行決定文字會不會置中) */
+  gap: 8px;                 /* 圖示與文字的間距 */
+  
+  /* 外觀設定 */
+  background: #333; 
+  color: #ccc; 
+  border: 1px solid #444; 
+  padding: 0 10px;
+  border-radius: 4px; 
+  cursor: pointer; 
+  font-size: 13px; 
+  transition: all 0.2s;
 }
 .secondary-btn:hover { background: #444; color: #fff; }
 .hidden-input { display: none; }
@@ -720,4 +861,29 @@ button, input, select, textarea { font-family: inherit; }
 }
 .waypoint-handle:active { cursor: grabbing; transform: scale(1.2); }
 .helper-text { position: absolute; bottom: 10px; right: 10px; color: #666; font-size: 12px; pointer-events: none; }
+/* 新增的樣式 */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-content {
+  background: #1e1e1e; padding: 20px; border-radius: 8px; width: 400px;
+  border: 1px solid #444; position: relative; color: #fff;
+}
+.modal-input {
+  width: 100%; margin-bottom: 10px; background: #333; border: 1px solid #555; color: white; padding: 8px;
+}
+.project-item {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #252526; padding: 8px; margin-bottom: 5px; border-radius: 4px;
+}
+.project-item:hover { background: #333; }
+.author { font-size: 10px; color: #888; margin-left: 8px; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.user-info { display: flex; align-items: center; font-size: 12px; color: #ccc; justify-content: space-between; }
+.text-btn { background: none; border: none; color: #f87171; cursor: pointer; font-size: 10px; }
+.tabs { display: flex; margin-bottom: 10px; gap: 5px; }
+.tabs button { flex: 1; background: #333; border: none; color: #aaa; padding: 5px; cursor: pointer; }
+.tabs button.active { background: #007fd4; color: white; }
 </style>
