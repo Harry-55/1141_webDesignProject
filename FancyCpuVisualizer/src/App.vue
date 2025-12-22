@@ -815,6 +815,7 @@ button, input, select, textarea { font-family: inherit; }
   gap: 8px;
   width: 100%;
 }
+.editor-panel textarea:focus { background: #222; }
 
 .secondary-btn {
   /* 尺寸設定 */
